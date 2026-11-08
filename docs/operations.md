@@ -40,12 +40,19 @@ supabase login
 supabase link --project-ref <プロジェクトの Reference ID>
 ```
 
+> **Supabase CLI 3.0 以降は、`db push` や `migration list` の対象が既定でローカルになる**。本番に対しては必ず `--remote` を付ける。出力の1行目の `Target:` が `local stack` になっていたら、本番には何も適用されていない。
+
 ```bash
-supabase db push
+supabase migration list --remote
 ```
 
+```bash
+supabase db push --remote
+```
+
+- 適用後にもう一度 `supabase migration list --remote` を実行し、`Remote` の列にすべてのマイグレーションが並んでいることを確かめる
 - `seed.sql`（ローカル用のテスト値）は流れない。`--include-seed` は付けない
-- 以後、マイグレーションを追加したときも `supabase db push` で適用する
+- 以後、マイグレーションを追加したときも `supabase db push --remote` で適用する
 
 ### 2.3 Auth を設定する（ダッシュボード）
 
@@ -61,7 +68,8 @@ Authentication の設定で、次のようにする（ローカルの `supabase/
 supabase functions deploy admin-create-admin
 ```
 
-service_role キーは Supabase が関数に自動で渡す。設定は不要。
+- 出力の `Target:` が本番（プロジェクトの Reference ID）になっていることを確かめる。ローカルになっていたら `--remote` を付けて実行し直す
+- service_role キーは Supabase が関数に自動で渡す。設定は不要
 
 ### 2.5 最初の管理者を作る
 
@@ -174,7 +182,7 @@ gpg -o backup.dump -d dxplace-YYYYMMDD-HHMMSS.dump.gpg
 
 ### 4.2 復元先を用意する
 
-- **新しいプロジェクトに復元する場合**: 2.1〜2.4 を済ませる（`supabase db push` でテーブルができる）
+- **新しいプロジェクトに復元する場合**: 2.1〜2.4 を済ませる（`supabase db push --remote` でテーブルができる）
 - **今のプロジェクトに上書きする場合**: SQL Editor で今のデータを消す。**今のデータはすべて失われる**ので、必要なら先に `backup` を手動実行しておく
 
 ```sql
