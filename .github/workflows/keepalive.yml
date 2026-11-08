@@ -1,0 +1,39 @@
+# Supabase の一時停止を防ぐ（要件定義 8章「運用と保守」）
+# 無料プランは7日間アクティビティがないと一時停止されるので、3日ごとに軽いクエリを送る。
+#
+# 必要な Secrets（リポジトリの Settings → Secrets and variables → Actions）:
+#   SUPABASE_DB_URL … Supabase の接続文字列（Session pooler のもの。GitHub のランナーは IPv4 のため）
+name: keepalive
+
+on:
+  schedule:
+    - cron: "17 3 */3 * *" # 3日ごと 12:17（日本時間）。毎時0分は混むのでずらす
+  workflow_dispatch:
+
+permissions:
+  actions: write # 下の「ワークフローを有効のままにする」に必要
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: データベースに軽いクエリを送る
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::Secrets に SUPABASE_DB_URL がありません"
+            exit 1
+          fi
+          docker run --rm -e DB_URL="$SUPABASE_DB_URL" postgres:17 \
+            sh -c 'psql "$DB_URL" -tAc "select now()"'
+
+      # 公開リポジトリでは、60日間リポジトリに動きがないとスケジュール実行が自動で止まる。
+      # 実行のたびに有効化の API を呼び、止まるのを防ぐ（効果は GitHub の仕様次第。docs/operations.md 参照）
+      - name: ワークフローを有効のままにする
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/keepalive.yml/enable"
+          gh api -X PUT "repos/${{ github.repository }}/actions/workflows/backup.yml/enable"
