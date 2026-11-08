@@ -111,7 +111,7 @@ PostgreSQL 17 なので、一意性に `nulls not distinct` を使える（教�
 | id | bigint identity PK | |
 | actor_type | text not null | `'user'` / `'admin'` |
 | actor_user_id | uuid null → users | |
-| actor_admin_id | uuid null → auth.users | |
+| actor_admin_id | uuid null | 外部キーは付けない（Auth のユーザーが消えてもログを残す） |
 | action | text not null | 例: `reservation.create`、`reservation.check_in`、`user.suspend` |
 | target_type | text not null | `'reservation'` / `'user'` / `'resource'` / `'announcement'` / `'token'` / `'admin'` |
 | target_id | text null | |
@@ -169,12 +169,16 @@ PostgreSQL 17 なので、一意性に `nulls not distinct` を使える（教�
 
 - 予約を書き換える関数は、すべて対象リソースの行を `for update` でロックしてから判定し、書き込み、ログの記録までを同じトランザクションで行う
 - 予約の所有者の確認は `reservation.user_id = p_user_id` で行う（信頼モデル。なりすましの追跡は操作ログで行う）
+- `create_reservation` は、上限が利用者ごとなので利用者の行もロックする（別のリソースへの同時の予約で4件目が通らないように）
+- グリッド（`get_home` / `get_day` の `reservations`）に描くのは、占有中の予約と、実際に使われた終了済みの予約（チェックインした予約・予約なしの利用・封鎖）。要件の導出順では無断不参加も終了時刻を過ぎると「終了」になるため、チェックインしていない「終了」は描かない
+- `login_user` も操作ログに残す（なりすましの追跡のため）
+- 2人が同時に同じ枠を予約したときの拒否は、pgTAP（1つのトランザクション）では再現できない。画面ができた段階で、2つのブラウザから確かめる
 
 ---
 
 ## 4. RPC関数（管理者。`authenticated` のみに公開）
 
-冒頭で `assert_admin()` を実行し、すべての書き込みを `actor_type = 'admin'` でログに残す。
+冒頭で `assert_admin()` を実行し、すべての書き込みを `actor_type = 'admin'` でログに残す。利用停止・アカウントの削除・リソースの削除に伴って予約をキャンセル・終了させるときは、予約ごとにも `reservation.cancel` / `reservation.force_checkout` のログを残す（ログを利用者やリソースで絞り込んだときに追えるように）。管理者の RPC の実行権は、名前が `admin_` で始まる関数に対して一括で `authenticated` に与える。
 
 | 関数 | 引数 | 戻り値 | 主なエラー / 備考 |
 |---|---|---|---|
@@ -233,6 +237,7 @@ PostgreSQL 17 なので、一意性に `nulls not distinct` を使える（教�
 | ADVANCE_REQUIRED | 開始前なので、前倒しか予約なしの利用かを選ぶ必要がある |
 | PREVIOUS_SLOT_OCCUPIED | 直前の時間帯が埋まっているので前倒しできない |
 | NAME_CONFLICT | 同じ名前のリソースがある |
+| ANNOUNCEMENT_NOT_FOUND | お知らせがない（削除済みを含む） |
 | NOT_ADMIN | 管理者ではない |
 
 ---
