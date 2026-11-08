@@ -5,8 +5,8 @@
 // ローカル: scripts/write-local-config.sh が生成する js/config.local.js（コミットしない）を優先する。
 
 const production = {
-  supabaseUrl: "",
-  anonKey: "",
+  supabaseUrl: "https://ouqgjeiekbaqjrkvvtgc.supabase.co",
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im91cWdqZWlla2JhcWpya3Z2dGdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQxMzg3NjksImV4cCI6MjEwOTcxNDc2OX0.RSdj6Y7kTA2_EuRHFobBGPmJCpzzGnmWLfbMgx1Pkos",
 };
 
 let cached = null;
