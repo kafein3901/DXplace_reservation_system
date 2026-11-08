@@ -433,3 +433,45 @@ dialog::backdrop { background: rgb(0 0 0 / .45); }
 .toast.show { transform: translate(-50%, 0); }
 .toast.error { background: var(--danger); color: #fff; }
 .toast.ok { background: var(--ok); color: #fff; }
+
+/* ===== 管理画面 ===== */
+.admin-layout { display: grid; gap: 12px; padding: 12px 16px 48px; grid-template-columns: minmax(0, 1fr); }
+.admin-layout .card { margin-bottom: 12px; }
+.tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.tab {
+  min-height: var(--tap);
+  padding: .4rem 1rem;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab.active { color: var(--text); border-bottom-color: var(--primary); }
+.panel { min-width: 0; }
+.row.space { justify-content: space-between; }
+.filter { margin-bottom: 8px; }
+.filter input[type="search"], .filter input[type="date"], .filter select {
+  min-height: 36px;
+  padding: .25rem .5rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+.table-wrap { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.table th, .table td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.table th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+.table .row { flex-wrap: wrap; gap: 4px; }
+.dt { display: flex; gap: 6px; flex-wrap: wrap; }
+.dt input { flex: 1 1 8rem; }
+.preview { min-height: 3rem; padding: 8px; border: 1px dashed var(--line-strong); border-radius: 6px; }
+.qr { display: block; max-width: 100%; height: auto; background: #fff; border-radius: 6px; }
+.url-box { flex: 1; min-height: 36px; padding: .25rem .5rem; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; font-size: .85rem; }
+.json { margin: 4px 0 0; max-width: 40rem; overflow-x: auto; font-size: .78rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pager { justify-content: center; margin-top: 8px; }

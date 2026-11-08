@@ -81,12 +81,13 @@ export function renderGrid(root, o) {
     h("div", { class: "col-head" },
       h("button", { class: "col-name", type: "button", onclick: () => o.onMemo(res), title: "メモを見る" },
         res.name, res.paused ? h("span", { class: "badge" }, "停止中") : null),
-      h("button", {
+      // 管理画面では onWalkIn を渡さず、ボタンを出さない
+      o.onWalkIn ? h("button", {
         class: "btn btn-small btn-primary",
         type: "button",
         disabled: !o.canWalkIn(res),
         onclick: () => o.onWalkIn(res),
-      }, "今すぐ使う")));
+      }, "今すぐ使う") : null));
 
   const axis = h("div", { class: "axis", style: { height: minToPx(DAY_MIN) } },
     Array.from({ length: 24 }, (_, i) =>

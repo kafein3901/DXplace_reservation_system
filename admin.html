@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>DXプレイス予約 管理</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/admin/main.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <h1 class="site-title">DXプレイス予約 管理</h1>
+    <div id="header-actions" class="header-actions" hidden>
+      <span id="admin-name" class="muted small"></span>
+      <button id="logout" class="btn btn-small" type="button">ログアウト</button>
+    </div>
+  </header>
+
+  <!-- A1: ログイン -->
+  <main data-screen="login" class="message-screen" hidden>
+    <h2>管理者ログイン</h2>
+    <form id="login-form" class="form card">
+      <label>メールアドレス <input id="login-email" type="email" autocomplete="username" required></label>
+      <label>パスワード <input id="login-password" type="password" autocomplete="current-password" required></label>
+      <p id="login-error" class="field-error" role="alert"></p>
+      <div class="actions"><button class="btn btn-primary" type="submit">ログイン</button></div>
+    </form>
+    <p class="muted small">機器を使うときは、管理者とは別に一般のアカウントで予約してください。</p>
+  </main>
+
+  <!-- A2〜A8 -->
+  <main data-screen="app" class="admin-layout" hidden>
+    <nav id="tabs" class="tabs" aria-label="管理メニュー"></nav>
+    <section id="panel" class="panel"></section>
+  </main>
+
+  <dialog id="dialog"></dialog>
+  <dialog id="dialog2"></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
