@@ -72,8 +72,20 @@ service_role キーは Supabase が関数に自動で渡す。設定は不要。
 
 ```sql
 insert into private.admins (user_id, display_name)
-select id, '開発者' from auth.users where email = 'あなたのメールアドレス';
+select id, '開発者' from auth.users where lower(email) = lower('あなたのメールアドレス')
+returning user_id, display_name;
 ```
+
+結果に1行表示されれば登録できている。**0行（`Success. No rows returned`）なら登録できていない**。メールアドレスが Users の一覧と一致しているか確かめて、もう一度実行する。
+
+登録済みの管理者は、次の SQL で確かめられる。
+
+```sql
+select u.email, a.display_name
+from auth.users u left join private.admins a on a.user_id = u.id;
+```
+
+`display_name` が空の行は、Auth のユーザーはいるが管理者表にいない（管理画面にはログインできない）。
 
 ### 2.6 画面の接続先を書く
 

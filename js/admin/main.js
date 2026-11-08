@@ -1,5 +1,5 @@
 // 管理画面（基本設計 6章 A1〜A8）
-import { rpc } from "../api.js";
+import { rpc, ApiError } from "../api.js";
 import { h, toast } from "../ui.js";
 import { auth, accessToken, setSignedOutHandler } from "./common.js";
 import * as reservations from "./reservations.js";
@@ -34,20 +34,34 @@ async function init() {
   $("logout").addEventListener("click", logout);
 
   const token = await accessToken();
-  if (token && (await checkAdmin(token))) return startApp();
+  if (token && (await checkAdmin(token)) === "admin") return startApp();
   showScreen("login");
 }
 
-// 管理者表にいるかを確かめる（管理者でなければ表示名は出さない）
+// 管理者表にいるかを確かめる
+//   戻り値: "admin"（管理者）/ "not_admin"（管理者表にいない）/ ApiError（確かめられなかった）
 async function checkAdmin(token) {
   try {
     const who = await rpc("admin_whoami", {}, token);
-    if (!who.is_admin) return false;
+    if (!who.is_admin) return "not_admin";
     $("admin-name").textContent = `${who.display_name} さん`;
-    return true;
-  } catch {
-    return false;
+    return "admin";
+  } catch (err) {
+    console.error("admin_whoami の呼び出しに失敗しました", err);
+    return err;
   }
+}
+
+// 確かめられなかったときの説明（原因を探しやすいよう、状況とコードを出す）
+function checkFailedMessage(err) {
+  const d = err instanceof ApiError ? err.details ?? {} : {};
+  if (d.status === 404) {
+    return "管理者かどうかを確かめる関数（admin_whoami）が見つかりません。マイグレーションが適用されているか確かめてください（HTTP 404）。";
+  }
+  const code = err instanceof ApiError ? err.code : "UNKNOWN";
+  const status = d.status ? ` / HTTP ${d.status}` : "";
+  const detail = d.message ? ` / ${d.message}` : "";
+  return `管理者かどうかを確かめられませんでした（${code}${status}${detail}）。`;
 }
 
 async function login(e) {
@@ -66,9 +80,12 @@ async function login(e) {
       error.textContent = "メールアドレスまたはパスワードが違います。";
       return;
     }
-    if (!(await checkAdmin(data.session.access_token))) {
+    const result = await checkAdmin(data.session.access_token);
+    if (result !== "admin") {
       await sb.auth.signOut();
-      error.textContent = "このアカウントは管理者として登録されていません。";
+      error.textContent = result === "not_admin"
+        ? "このアカウントは管理者として登録されていません（ログインはできましたが、管理者表にいません）。"
+        : checkFailedMessage(result);
       return;
     }
     $("login-password").value = "";
