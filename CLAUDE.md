@@ -1,6 +1,7 @@
 # DXプレイス予約システム
 
 要件定義: @docs/requirements.md
+基本設計（テーブル・RPC・画面）: @docs/design.md
 
 ## 構成
 
