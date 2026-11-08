@@ -1,6 +1,10 @@
 -- スキーマ・テーブル・権限のテスト（基本設計 1章・2章）
 begin;
 
+-- seed.sql の初期データに左右されないよう、空の状態から始める（rollback で元に戻る）
+truncate private.action_logs, private.reservations, private.entry_tokens, private.admins,
+         private.announcements, private.users, private.resources;
+
 select plan(38);
 
 -- ------------------------------------------------------------

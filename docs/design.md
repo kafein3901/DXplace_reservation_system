@@ -213,7 +213,15 @@ PostgreSQL 17 なので、一意性に `nulls not distinct` を使える（教�
 2. 環境変数 `SUPABASE_SERVICE_ROLE_KEY`（Supabase が自動で注入する。リポジトリには置かない）で `auth.admin.createUser({ email, password, email_confirm: true })` を実行する
 3. 呼び出し元の JWT で `admin_register_admin` を呼ぶ（判定とログは DB 側に残す）。失敗したら作成した Auth ユーザーを削除する
 
+- リクエスト: `POST { email, password, display_name }`。応答: `200 { user_id, display_name, created_at }`、失敗時は `4xx { error: コード, details }`
+- 関数独自のエラー: `NOT_ADMIN`（403）、`INVALID_INPUT`（`details.field` は email / password / display_name / body）、`EMAIL_EXISTS`（同じメールアドレスの Auth ユーザーがいる）、`AUTH_CREATE_FAILED`（その他の作成失敗）。`admin_register_admin` のエラーはそのコードを返す
+- パスワードは8文字以上（`config.toml` の `minimum_password_length` も 8）
+
 あわせて `config.toml` の `[auth] enable_signup` を `false` にする。初期の管理者2人は、ローカルでは `seed.sql`、本番では手順書に沿って1回だけ作成する。
+
+### ローカルの初期データ（`supabase/seed.sql`）
+
+入口トークン、リソース3つ、管理者1人（ローカル専用のテスト値。中身は `seed.sql` の冒頭に書いてある）。pgTAP のテストはこの初期データに左右されないよう、各ファイルの冒頭で `private` のテーブルを空にしてから始める（`rollback` で元に戻る）。
 
 ---
 

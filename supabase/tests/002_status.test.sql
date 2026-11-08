@@ -1,6 +1,10 @@
 -- 状態の導出と共通処理のテスト（基本設計 2章「ビューと内部関数」）
 begin;
 
+-- seed.sql の初期データに左右されないよう、空の状態から始める（rollback で元に戻る）
+truncate private.action_logs, private.reservations, private.entry_tokens, private.admins,
+         private.announcements, private.users, private.resources;
+
 select plan(48);
 
 -- ------------------------------------------------------------

@@ -19,7 +19,9 @@
 - マイグレーションの適用: `supabase db reset`（ローカルDBを作り直し、全マイグレーションと `seed.sql` を流す）。`--linked` は付けない
 - テスト全件: `supabase test db`
 - テスト1ファイル: `supabase test db supabase/tests/<ファイル名>.test.sql`
-- テストファイルは `begin; select plan(n); ... select * from finish(); rollback;` の形で書く（`supabase/tests/000_setup.test.sql` が例）
+- テストファイルは `begin; select plan(n); ... select * from finish(); rollback;` の形で書く（`supabase/tests/000_setup.test.sql` が例）。seed のデータに左右されないよう、`begin;` の直後で `private` のテーブルを truncate する（`001_schema.test.sql` などが例）
+- ローカルの入口トークンと管理者のログイン情報は `supabase/seed.sql` の冒頭にある
+- Edge Function は `supabase start` で自動的に `http://127.0.0.1:54321/functions/v1/<名前>` に配信される
 
 ローカルの接続先: API `http://127.0.0.1:54321`、DB `127.0.0.1:54322`、Studio `http://127.0.0.1:54323`
 

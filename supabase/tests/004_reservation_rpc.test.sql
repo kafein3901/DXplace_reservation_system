@@ -5,6 +5,10 @@
 -- 同時に予約したときの拒否（行ロック）は、1つのトランザクションでは再現できないので、ここでは試験しない。
 begin;
 
+-- seed.sql の初期データに左右されないよう、空の状態から始める（rollback で元に戻る）
+truncate private.action_logs, private.reservations, private.entry_tokens, private.admins,
+         private.announcements, private.users, private.resources;
+
 select plan(43);
 
 -- ------------------------------------------------------------
