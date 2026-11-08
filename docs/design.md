@@ -172,7 +172,7 @@ PostgreSQL 17 なので、一意性に `nulls not distinct` を使える（教�
 - `create_reservation` は、上限が利用者ごとなので利用者の行もロックする（別のリソースへの同時の予約で4件目が通らないように）
 - グリッド（`get_home` / `get_day` の `reservations`）に描くのは、占有中の予約と、実際に使われた終了済みの予約（チェックインした予約・予約なしの利用・封鎖）。要件の導出順では無断不参加も終了時刻を過ぎると「終了」になるため、チェックインしていない「終了」は描かない
 - `login_user` も操作ログに残す（なりすましの追跡のため）
-- 2人が同時に同じ枠を予約したときの拒否は、pgTAP（1つのトランザクション）では再現できない。画面ができた段階で、2つのブラウザから確かめる
+- 2人が同時に同じ枠を予約したときの拒否は、pgTAP（1つのトランザクション）では再現できない。ローカルで2つのリクエストを同時に送って確かめた（5回とも片方だけが成功し、重なった予約は残らなかった）
 
 ---
 
@@ -291,7 +291,10 @@ PostgreSQL 17 なので、一意性に `nulls not distinct` を使える（教�
 
 ```
 index.html / admin.html / css/style.css
-js/config.js      … Supabase の URL と anon キー（公開してよい値）。ホスト名でローカルと本番を切り替える
+js/config.js      … 本番の Supabase の URL と anon キー（公開してよい値）。ローカルでは js/config.local.js を優先する
+js/config.local.js … ローカルの接続先。scripts/write-local-config.sh が生成する（コミットしない）
+js/time.js        … 東京時間での表示と計算、サーバーの時計とのずれの補正
+js/ui.js          … 要素の作成、ダイアログ、トースト
 js/api.js         … supabase.rpc の薄いラッパーとエラーコードの変換
 js/token.js       … 入口処理と Cookie
 js/session.js     … localStorage の利用者 ID

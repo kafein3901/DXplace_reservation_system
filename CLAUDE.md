@@ -22,6 +22,7 @@
 - テストファイルは `begin; select plan(n); ... select * from finish(); rollback;` の形で書く（`supabase/tests/000_setup.test.sql` が例）。seed のデータに左右されないよう、`begin;` の直後で `private` のテーブルを truncate する（`001_schema.test.sql` などが例）
 - ローカルの入口トークンと管理者のログイン情報は `supabase/seed.sql` の冒頭にある
 - Edge Function は `supabase start` で自動的に `http://127.0.0.1:54321/functions/v1/<名前>` に配信される
+- フロントをローカルで開く: `bash scripts/write-local-config.sh`（接続先を gitignore 済みの `js/config.local.js` に書き出す）の後、`python -m http.server 8000 --bind 127.0.0.1` を実行し、`http://localhost:8000/#t=local-dev-token` を開く
 
 ローカルの接続先: API `http://127.0.0.1:54321`、DB `127.0.0.1:54322`、Studio `http://127.0.0.1:54323`
 

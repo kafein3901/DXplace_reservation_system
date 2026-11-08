@@ -2,3 +2,6 @@
 .env
 .env.*
 !.env.example
+
+# ローカルの接続先（scripts/write-local-config.sh が生成する）
+js/config.local.js

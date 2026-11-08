@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DXプレイス予約</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/home.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <h1 class="site-title">DXプレイス予約</h1>
+    <div id="header-actions" class="header-actions" hidden>
+      <button id="reload" class="btn btn-small" type="button" aria-label="再読み込み">↻ 再読み込み</button>
+      <span id="updated" class="muted small"></span>
+      <button id="account" class="btn btn-small" type="button">ログイン / 登録</button>
+    </div>
+  </header>
+
+  <!-- U2: Cookie なし -->
+  <main data-screen="no-cookie" class="message-screen" hidden>
+    <h2>入口URLから開いてください</h2>
+    <p>このページは、DXプレイスに掲示されているQRコード（入口URL）から開くと使えるようになります。</p>
+  </main>
+
+  <!-- U3: トークン無効 -->
+  <main data-screen="invalid-token" class="message-screen" hidden>
+    <h2>入口URLが更新されました</h2>
+    <p>DXプレイスに掲示されている新しいQRコードから、もう一度開いてください。</p>
+  </main>
+
+  <!-- U4: トップページ -->
+  <main data-screen="main" class="layout" hidden>
+    <section id="important" class="area-important" aria-label="重要なお知らせ" hidden></section>
+    <section id="mine" class="area-mine card" aria-label="自分の予約"></section>
+    <section class="area-grid card" aria-label="空き状況">
+      <div id="grid-nav" class="grid-nav"></div>
+      <ul class="legend" aria-label="凡例">
+        <li><span class="swatch swatch-free"></span>空き</li>
+        <li><span class="swatch blk-reserved"></span>予約済み</li>
+        <li><span class="swatch blk-inuse"></span>利用中</li>
+        <li><span class="swatch blk-reserved blk-mine"></span>自分の予約</li>
+        <li><span class="swatch blk-block"></span>封鎖</li>
+      </ul>
+      <p class="muted small hint">空いている所をタップすると予約できます。PCではドラッグで時間を指定できます。</p>
+      <div id="grid"></div>
+    </section>
+    <section id="news" class="area-news card" aria-label="お知らせ" hidden></section>
+  </main>
+
+  <dialog id="dialog"></dialog>
+  <dialog id="dialog2"></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
