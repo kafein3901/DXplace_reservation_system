@@ -1,7 +1,0 @@
-# 秘密情報（service_role キー、DBパスワードなど）は .env に置き、コミットしない
-.env
-.env.*
-!.env.example
-
-# ローカルの接続先（scripts/write-local-config.sh が生成する）
-js/config.local.js
