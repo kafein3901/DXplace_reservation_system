@@ -9,5 +9,5 @@ node_modules/
 # wrangler の作業ファイル
 .wrangler/
 
-# 基盤の実測用の使い捨てコード（docs/design/platform-selection.md）
+# 基盤の実測用の使い捨てコード（docs/design/basic/platform-selection.md）
 spike/
