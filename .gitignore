@@ -1,0 +1,13 @@
+# 依存パッケージ
+node_modules/
+
+# 秘密情報（CLAUDE.md「秘密情報をコミットしない」）
+.env
+.env.*
+.dev.vars
+
+# wrangler の作業ファイル
+.wrangler/
+
+# 基盤の実測用の使い捨てコード（docs/design/platform-selection.md）
+spike/
