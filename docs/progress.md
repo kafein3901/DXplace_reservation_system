@@ -6,7 +6,7 @@
 
 ## いまの段階
 
-**基本設計の途中。** 基盤の選定、構成とデータの流れ（`basic/architecture.md`）、データのまとまりと状態遷移（`basic/domain-model.md`）、時刻の扱いと排他（`basic/time-and-concurrency.md`）、認証（`basic/auth.md`）が決まった。次は画面と API（`basic/screens-and-api.md`）。
+**基本設計の途中。** 基盤の選定、構成とデータの流れ（`basic/architecture.md`）、データのまとまりと状態遷移（`basic/domain-model.md`）、時刻の扱いと排他（`basic/time-and-concurrency.md`）、認証（`basic/auth.md`）、画面と API（`basic/screens-and-api.md`）が決まった。次は記録の持ち方（`basic/logging.md`）。
 
 文書の分け方と、基本設計で作る文書の一覧は [design/README.md](design/README.md) を見る。
 
@@ -19,8 +19,8 @@
 | [design/basic/domain-model.md](design/basic/domain-model.md) | 決定 |
 | [design/basic/time-and-concurrency.md](design/basic/time-and-concurrency.md) | 決定（`blockConcurrencyWhile` の動きは確認待ち） |
 | [design/basic/auth.md](design/basic/auth.md) | 決定（PBKDF2 の反復回数は実測待ち） |
-| design/basic/screens-and-api.md | **次に着手** |
-| design/basic/logging.md | 未着手 |
+| [design/basic/screens-and-api.md](design/basic/screens-and-api.md) | 決定 |
+| design/basic/logging.md | **次に着手** |
 | design/basic/testing-and-deploy.md | 未着手 |
 | [design/basic/design-values.md](design/basic/design-values.md) | 作成（各文書で値が決まるたびに足す） |
 
@@ -34,6 +34,7 @@
 - データ：数値の設定は上書きせず履歴で持つ（猶予は開始時刻の時点の値を引く。RSV-26）。予約は利用者の番号だけを持ち、名前は写さない（USR-7）。猶予のうちで予約済なら本人が取り消せる（RSV-8 の読み方。確認済み）。
 - 時刻と排他：時刻は UTC のミリ秒で持ち、日本時間は9時間を足す。自動の変化は、どのリクエストでも先に `nowMin` 以下の分を反映する。`await` を挟まずに処理し、ハッシュの計算だけ `blockConcurrencyWhile` で包む。
 - 認証：共有された情報は台帳が作るランダムな値で、QR コード（利用者の画面の URL の `#k=値`）でだけ渡す。作り直すと全端末が止まる。証明は Cookie のランダムな値で、台帳は SHA-256 を持ち、版で止める。期限はなし。試行は同じ IP からの失敗を10分ごとに数える。学校のアカウントは保守用の API（`MAINT_KEY`）で管理者を作る。
+- 画面と API：HTML は利用者用と管理者用の2つで、中は JavaScript で切り替える。利用者の入力（`POST /api/me`）だけで名前を置き換え、その後の操作は識別の組だけを本文で送る。`GET` は読むだけ、ほかは `POST` で動詞を URL に書く。時刻は `YYYY-MM-DDTHH:mm`（日本時間）。断る理由のコードは1つで、頭は `INPUT_`・`AUTH_`・`LIMIT_`・`NOT_FOUND_`・`STATE_`・`RULE_`。
 - 学校のアカウント（PRE-11）は未定。メールで登録できることだけを前提にしている。
 - GitHub は PRE-11 の対象外とする。
 
@@ -44,7 +45,7 @@
 
 ## 未解決の質問・確認事項
 
-- architecture.md から持ち越し：PBKDF2 の `await` の間に他のリクエストが割り込みうる（管理者のパスワードを扱う操作だけ `blockConcurrencyWhile` で包むと決めた。リクエストの処理の中でも使えるかは、テストと実測で確かめる）。USR-7 の名前の置き換えが起きる時点、つまり利用者として誰かを API にどう渡すか（screens-and-api.md で扱う）。
+- architecture.md から持ち越し：PBKDF2 の `await` の間に他のリクエストが割り込みうる（管理者のパスワードを扱う操作だけ `blockConcurrencyWhile` で包むと決めた。リクエストの処理の中でも使えるかは、テストと実測で確かめる）。USR-7 の名前の置き換えは `POST /api/me` だけで行う（確認済み。screens-and-api.md）。
 
 - CLAUDE.md の技術スタックは仮のもの。実測の結果によっては、データの置き場所を D1 に変える。
 
