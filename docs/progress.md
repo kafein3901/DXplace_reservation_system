@@ -6,7 +6,7 @@
 
 ## いまの段階
 
-**基本設計の途中。** 基盤の選定が終わった。次は構成とデータの流れ（`basic/architecture.md`）。
+**基本設計の途中。** 基盤の選定と、構成とデータの流れ（`basic/architecture.md`）が決まった。次はデータのまとまりと状態遷移（`basic/domain-model.md`）。
 
 文書の分け方と、基本設計で作る文書の一覧は [design/README.md](design/README.md) を見る。
 
@@ -15,8 +15,8 @@
 | 文書 | 状態 |
 | --- | --- |
 | [design/basic/platform-selection.md](design/basic/platform-selection.md) | 決定（実測3件は保留） |
-| design/basic/architecture.md | **次に着手** |
-| design/basic/domain-model.md | 未着手 |
+| [design/basic/architecture.md](design/basic/architecture.md) | 決定 |
+| design/basic/domain-model.md | **次に着手** |
 | design/basic/time-and-concurrency.md | 未着手 |
 | design/basic/auth.md | 未着手 |
 | design/basic/screens-and-api.md | 未着手 |
@@ -30,6 +30,7 @@
 
 - 基盤は Cloudflare Workers の無料プランで、カードは登録しない。予約台帳は Durable Object（SQLite）に置き、書き込みを順に処理する（RSV-23）。画面は Workers が配る静的ファイル。テストは Vitest、デプロイは wrangler と GitHub Actions。
 - 採らなかった案と理由：Supabase は NFR-5、GAS は SEC-3 と NFR-2、Firebase は PRE-2 を満たせない。
+- 構成：すべてのデータと API の処理を1つの Durable Object（台帳）に置き、Worker は静的ファイルと振り分けだけ。ルールの判定は `src/rules/` の純粋な関数、SQL は `src/store/` だけに書く。画面はフレームワークもビルドも使わない。
 - 学校のアカウント（PRE-11）は未定。メールで登録できることだけを前提にしている。
 - GitHub は PRE-11 の対象外とする。
 
@@ -39,6 +40,8 @@
 - **実測用のコード `spike/`**：Git の対象外で、この PC にだけある。
 
 ## 未解決の質問・確認事項
+
+- architecture.md から持ち越し：PBKDF2 の `await` の間に他のリクエストが割り込みうる（auth.md で扱う）。USR-7 の名前の置き換えが起きる時点、つまり利用者として誰かを API にどう渡すか（screens-and-api.md で扱う）。
 
 - CLAUDE.md の技術スタックは仮のもの。実測の結果によっては、データの置き場所を D1 に変える。
 
