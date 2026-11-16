@@ -2,11 +2,20 @@
 
 セッションを終える前（`/clear` の前）に更新し、次のセッションはここから読み始める。決定の中身は設計文書に書き、ここには「どこまで進んだか」「次に何をするか」「保留していること」だけを書く。
 
-最終更新：2026-11-16
+最終更新：2026-11-17
 
 ## いまの段階
 
-**基本設計の途中。** 基盤の選定、構成とデータの流れ（`basic/architecture.md`）、データのまとまりと状態遷移（`basic/domain-model.md`）、時刻の扱いと排他（`basic/time-and-concurrency.md`）、認証（`basic/auth.md`）、画面と API（`basic/screens-and-api.md`）、記録の持ち方（`basic/logging.md`）が決まった。次はテストとデプロイ（`basic/testing-and-deploy.md`）。
+**基本設計が終わった。** 基本設計の文書（下の表）がすべて決定になった。
+
+**次は基本設計のレビュー。** 詳細設計に入る前に、基本設計の文書をまとめて見直す。見ること：
+
+- 要件の漏れ：`docs/requirements_v0-1-0.md` の ID が、どれかの文書で扱われているか（9章の FUT-1〜FUT-8 を受け入れられるかを含む）
+- 文書どうしの食い違い：あとの文書で決めたことが、前の文書の記述と合っているか（例：auth.md で共有された情報を QR コードと SHA-256 にした件）
+- 要件にないものを作っていないか（10章を含む）
+- 前提のまま残っている実測待ちの項目と、その影響の範囲
+
+見つけたものは、要件に関わるものは質問・提案として止め、設計の直しは開発者の確認をとってから行う。レビューが終わったら詳細設計に入り、まず `docs/design/detailed/` の文書の分け方を決める（design/README.md「詳細設計の文書」）。
 
 文書の分け方と、基本設計で作る文書の一覧は [design/README.md](design/README.md) を見る。
 
@@ -21,10 +30,10 @@
 | [design/basic/auth.md](design/basic/auth.md) | 決定（PBKDF2 の反復回数は実測待ち） |
 | [design/basic/screens-and-api.md](design/basic/screens-and-api.md) | 決定 |
 | [design/basic/logging.md](design/basic/logging.md) | 決定（DO あたりの容量と管理画面での見え方は実測待ち） |
-| design/basic/testing-and-deploy.md | **次に着手** |
+| [design/basic/testing-and-deploy.md](design/basic/testing-and-deploy.md) | 決定 |
 | [design/basic/design-values.md](design/basic/design-values.md) | 作成（各文書で値が決まるたびに足す） |
 
-順番は目安。architecture と domain-model を先に決めると、残りが決めやすい。
+design-values.md のうち、機器の名前の上限（MNG-1）は未定のまま。詳細設計で、機器の画面と API の入出力を決めるときに決める。OPN-1 は実測待ち。
 
 ## 決まったこと（要点）
 
@@ -36,6 +45,7 @@
 - 認証：共有された情報は台帳が作るランダムな値で、QR コード（利用者の画面の URL の `#k=値`）でだけ渡す。作り直すと全端末が止まる。証明は Cookie のランダムな値で、台帳は SHA-256 を持ち、版で止める。期限はなし。試行は同じ IP からの失敗を10分ごとに数える。学校のアカウントは保守用の API（`MAINT_KEY`）で管理者を作る。
 - 画面と API：HTML は利用者用と管理者用の2つで、中は JavaScript で切り替える。利用者の入力（`POST /api/me`）だけで名前を置き換え、その後の操作は識別の組だけを本文で送る。`GET` は読むだけ、ほかは `POST` で動詞を URL に書く。時刻は `YYYY-MM-DDTHH:mm`（日本時間）。断る理由のコードは1つで、頭は `INPUT_`・`AUTH_`・`LIMIT_`・`NOT_FOUND_`・`STATE_`・`RULE_`。
 - 記録：出来事の記録（消さない）と認証の失敗（入口・IP・10分ごとに1行。上限後は書かない。10,000行を超えたら古いものから消す）の2つの表に分ける。5年分で想定の規模は約50MB、10倍で約510MB。
+- テストとデプロイ：ルール・部品・台帳の3層で自動テストし、テスト名は要件の ID で始める。画面・NFR-1・NFR-2 は手で確かめる。GitHub Actions でテストが通ったときだけ `main` からデプロイし、手元からはデプロイしない。
 - 学校のアカウント（PRE-11）は未定。メールで登録できることだけを前提にしている。
 - GitHub は PRE-11 の対象外とする。
 
@@ -54,4 +64,4 @@
 ## 次のセッションの始め方
 
 1. このファイルと [design/README.md](design/README.md) を読む。
-2. 「いまの段階」の文書に着手する。設計を示すときは、構成・理由・主な代替案を簡潔に出す（CLAUDE.md「開発の進め方」）。
+2. 「いまの段階」の作業に着手する。設計を示すときは、構成・理由・主な代替案を簡潔に出す（CLAUDE.md「開発の進め方」）。
