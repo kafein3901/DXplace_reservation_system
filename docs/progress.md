@@ -6,7 +6,7 @@
 
 ## いまの段階
 
-**基本設計の途中。** 基盤の選定と、構成とデータの流れ（`basic/architecture.md`）が決まった。次はデータのまとまりと状態遷移（`basic/domain-model.md`）。
+**基本設計の途中。** 基盤の選定、構成とデータの流れ（`basic/architecture.md`）、データのまとまりと状態遷移（`basic/domain-model.md`）が決まった。次は時刻の扱いと排他（`basic/time-and-concurrency.md`）。
 
 文書の分け方と、基本設計で作る文書の一覧は [design/README.md](design/README.md) を見る。
 
@@ -16,8 +16,8 @@
 | --- | --- |
 | [design/basic/platform-selection.md](design/basic/platform-selection.md) | 決定（実測3件は保留） |
 | [design/basic/architecture.md](design/basic/architecture.md) | 決定 |
-| design/basic/domain-model.md | **次に着手** |
-| design/basic/time-and-concurrency.md | 未着手 |
+| [design/basic/domain-model.md](design/basic/domain-model.md) | 決定 |
+| design/basic/time-and-concurrency.md | **次に着手** |
 | design/basic/auth.md | 未着手 |
 | design/basic/screens-and-api.md | 未着手 |
 | design/basic/logging.md | 未着手 |
@@ -31,6 +31,7 @@
 - 基盤は Cloudflare Workers の無料プランで、カードは登録しない。予約台帳は Durable Object（SQLite）に置き、書き込みを順に処理する（RSV-23）。画面は Workers が配る静的ファイル。テストは Vitest、デプロイは wrangler と GitHub Actions。
 - 採らなかった案と理由：Supabase は NFR-5、GAS は SEC-3 と NFR-2、Firebase は PRE-2 を満たせない。
 - 構成：すべてのデータと API の処理を1つの Durable Object（台帳）に置き、Worker は静的ファイルと振り分けだけ。ルールの判定は `src/rules/` の純粋な関数、SQL は `src/store/` だけに書く。画面はフレームワークもビルドも使わない。
+- データ：数値の設定は上書きせず履歴で持つ（猶予は開始時刻の時点の値を引く。RSV-26）。予約は利用者の番号だけを持ち、名前は写さない（USR-7）。猶予のうちで予約済なら本人が取り消せる（RSV-8 の読み方。確認済み）。
 - 学校のアカウント（PRE-11）は未定。メールで登録できることだけを前提にしている。
 - GitHub は PRE-11 の対象外とする。
 
