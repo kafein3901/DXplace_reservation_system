@@ -6,7 +6,7 @@
 
 ## いまの段階
 
-**基本設計の途中。** 基盤の選定、構成とデータの流れ（`basic/architecture.md`）、データのまとまりと状態遷移（`basic/domain-model.md`）、時刻の扱いと排他（`basic/time-and-concurrency.md`）、認証（`basic/auth.md`）、画面と API（`basic/screens-and-api.md`）が決まった。次は記録の持ち方（`basic/logging.md`）。
+**基本設計の途中。** 基盤の選定、構成とデータの流れ（`basic/architecture.md`）、データのまとまりと状態遷移（`basic/domain-model.md`）、時刻の扱いと排他（`basic/time-and-concurrency.md`）、認証（`basic/auth.md`）、画面と API（`basic/screens-and-api.md`）、記録の持ち方（`basic/logging.md`）が決まった。次はテストとデプロイ（`basic/testing-and-deploy.md`）。
 
 文書の分け方と、基本設計で作る文書の一覧は [design/README.md](design/README.md) を見る。
 
@@ -20,8 +20,8 @@
 | [design/basic/time-and-concurrency.md](design/basic/time-and-concurrency.md) | 決定（`blockConcurrencyWhile` の動きは確認待ち） |
 | [design/basic/auth.md](design/basic/auth.md) | 決定（PBKDF2 の反復回数は実測待ち） |
 | [design/basic/screens-and-api.md](design/basic/screens-and-api.md) | 決定 |
-| design/basic/logging.md | **次に着手** |
-| design/basic/testing-and-deploy.md | 未着手 |
+| [design/basic/logging.md](design/basic/logging.md) | 決定（DO あたりの容量と管理画面での見え方は実測待ち） |
+| design/basic/testing-and-deploy.md | **次に着手** |
 | [design/basic/design-values.md](design/basic/design-values.md) | 作成（各文書で値が決まるたびに足す） |
 
 順番は目安。architecture と domain-model を先に決めると、残りが決めやすい。
@@ -35,12 +35,14 @@
 - 時刻と排他：時刻は UTC のミリ秒で持ち、日本時間は9時間を足す。自動の変化は、どのリクエストでも先に `nowMin` 以下の分を反映する。`await` を挟まずに処理し、ハッシュの計算だけ `blockConcurrencyWhile` で包む。
 - 認証：共有された情報は台帳が作るランダムな値で、QR コード（利用者の画面の URL の `#k=値`）でだけ渡す。作り直すと全端末が止まる。証明は Cookie のランダムな値で、台帳は SHA-256 を持ち、版で止める。期限はなし。試行は同じ IP からの失敗を10分ごとに数える。学校のアカウントは保守用の API（`MAINT_KEY`）で管理者を作る。
 - 画面と API：HTML は利用者用と管理者用の2つで、中は JavaScript で切り替える。利用者の入力（`POST /api/me`）だけで名前を置き換え、その後の操作は識別の組だけを本文で送る。`GET` は読むだけ、ほかは `POST` で動詞を URL に書く。時刻は `YYYY-MM-DDTHH:mm`（日本時間）。断る理由のコードは1つで、頭は `INPUT_`・`AUTH_`・`LIMIT_`・`NOT_FOUND_`・`STATE_`・`RULE_`。
+- 記録：出来事の記録（消さない）と認証の失敗（入口・IP・10分ごとに1行。上限後は書かない。10,000行を超えたら古いものから消す）の2つの表に分ける。5年分で想定の規模は約50MB、10倍で約510MB。
 - 学校のアカウント（PRE-11）は未定。メールで登録できることだけを前提にしている。
 - GitHub は PRE-11 の対象外とする。
 
 ## 保留していること
 
 - **基盤の実測3件**（platform-selection.md の未決事項1〜3）：実測できる環境がないので後回しにした。それまでの前提は platform-selection.md に書いてある。校内から `*.workers.dev` に届くかどうかは、本番のアカウントを作る前に必ず確かめる。
+- **実測のときに足して確かめること**：1つの DO あたりの保存容量の上限（公式ページで1GBと10GBが食い違う。logging.md 5）、DO の SQLite を管理画面から見られるか（logging.md 6）。
 - **実測用のコード `spike/`**：Git の対象外で、この PC にだけある。
 
 ## 未解決の質問・確認事項
