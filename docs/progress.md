@@ -66,8 +66,6 @@ design-values.md のうち、機器の名前の上限（MNG-1）は未定のま�
 
 - architecture.md から持ち越し：PBKDF2 の `await` の間に他のリクエストが割り込みうる（管理者のパスワードを扱う操作だけ `blockConcurrencyWhile` で包むと決めた。リクエストの処理の中でも使えるかは、テストと実測で確かめる）。USR-7 の名前の置き換えは `POST /api/me` だけで行う（確認済み。screens-and-api.md）。
 
-- CLAUDE.md の技術スタックは仮のもの。実測の結果によっては、データの置き場所を D1 に変える。
-
 ## 次のセッションの始め方
 
 1. このファイルと [design/README.md](design/README.md) を読む。
