@@ -8,7 +8,33 @@
 //   handler：src/api/ の関数。共通の流れ（ledger.js の handle）の後の部分だけを書く
 //
 // API は機能ごとの実装で足す。
-export const ROUTES = [];
+//
+// deps はテストが差し替える部品。derivePassword は PBKDF2 の関数で、テストは呼ばれた回数を数える（api.md 8.3）。
+// 本番の台帳は既定の部品で作った ROUTES だけを使う
+import { createAdminByMaint, resetAdminPasswordByMaint } from './maint.js';
+import { pbkdf2 } from '../lib/hash.js';
+
+export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
+  return [
+    // 保守用の API（api.md 8.1・8.2。ADM-2）
+    {
+      method: 'POST',
+      path: '/api/maint/admins',
+      auth: 'maint',
+      wrap: true,
+      handler: (context) => createAdminByMaint(context, derivePassword),
+    },
+    {
+      method: 'POST',
+      path: '/api/maint/admins/{id}/reset-password',
+      auth: 'maint',
+      wrap: true,
+      handler: (context) => resetAdminPasswordByMaint(context, derivePassword),
+    },
+  ];
+}
+
+export const ROUTES = buildRoutes();
 
 const ID_PATTERN = /^[1-9][0-9]*$/;
 

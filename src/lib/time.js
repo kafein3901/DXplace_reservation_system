@@ -7,3 +7,10 @@ export const MINUTE_MS = 60_000;
 export function floorMinute(ms) {
   return Math.floor(ms / MINUTE_MS) * MINUTE_MS;
 }
+
+// 試行を数える10分の区切りの始まり（rules.md 6.3、auth.md 7。SEC-3）。始まりを含む
+export const ATTEMPT_WINDOW_MS = 600_000;
+
+export function windowStart(now) {
+  return Math.floor(now / ATTEMPT_WINDOW_MS) * ATTEMPT_WINDOW_MS;
+}

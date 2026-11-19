@@ -48,3 +48,8 @@ async function readLimited(request, limit) {
   }
   return bytes;
 }
+
+// 本文の項目がすべて文字列か。項目がない、文字列でないときは偽（INPUT_BODY。error-codes.md 3.1）
+export function hasStringFields(body, names) {
+  return names.every((name) => typeof body[name] === 'string');
+}

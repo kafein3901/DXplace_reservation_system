@@ -1,5 +1,6 @@
 // Durable Object「台帳」（docs/design/detailed/api.md 3.2・3.3・4、docs/design/basic/architecture.md 3）
 import { DurableObject } from 'cloudflare:workers';
+import { checkAuth, prepareAuth } from './api/auth.js';
 import { ROUTES, findRoute } from './api/routes.js';
 import { refuse, serverError } from './api/respond.js';
 import { readJsonBody } from './lib/body.js';
@@ -51,6 +52,7 @@ export class Ledger extends DurableObject {
 
     // await が要る準備。本文が壊れていても、ここでは断らない（api.md 3.3 の 2）
     const body = isGet ? null : await readJsonBody(request);
+    const prepared = await prepareAuth(route.auth, request, this.env);
 
     // 現在時刻は準備の後に1回だけ取る（api.md 3.3 の 3）
     const now = clock();
@@ -62,7 +64,7 @@ export class Ledger extends DurableObject {
     if (!isGet && route.auth !== 'maint' && !isSameOrigin(request)) return refuse('AUTH_ORIGIN');
 
     // 共3：認証
-    const auth = checkAuth(route.auth);
+    const auth = checkAuth(route.auth, { storage: this.ctx.storage, request, prepared, now });
     if (!auth.ok) return refuse(auth.code);
 
     // 共4：本文を読めたか。認証が通ってから返す
@@ -84,16 +86,6 @@ export class Ledger extends DurableObject {
 // 要求の URL のオリジンと Origin ヘッダが完全に一致するか。ヘッダがなければ一致しない（api.md 4）
 function isSameOrigin(request) {
   return request.headers.get('Origin') === new URL(request.url).origin;
-}
-
-// 共3。認証の種類ごとの確かめ方は、それぞれの機能の実装で足す（auth.md 1）
-function checkAuth(kind) {
-  switch (kind) {
-    case 'public':
-      return { ok: true };
-    default:
-      throw new Error(`認証の種類がまだ実装されていない：${kind}`);
-  }
 }
 
 // 例外の中身だけを出す。要求と応答の本文・Cookie・ヘッダの値は出さない（LOG-4, SEC-4。api.md 1）
