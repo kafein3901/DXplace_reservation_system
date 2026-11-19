@@ -2,7 +2,7 @@
 
 - 状態：作成中（枠組みを決定。ルールごとの節は、機能ごとの設計で足す）
 - 日付：2026-11-19
-- 関係する要件：RSV-1〜RSV-27, TIM-1〜TIM-7, MNG-1〜MNG-3, ADM-2, USR-4〜USR-6, SEC-3, NFR-4
+- 関係する要件：RSV-1〜RSV-27, TIM-1〜TIM-7, MNG-1〜MNG-3, ADM-2, USR-3〜USR-7, SEC-3, NFR-4
 - 前提：[architecture.md](../basic/architecture.md)（手順 1〜7、`rules/` は純粋な関数）、[time-and-concurrency.md](../basic/time-and-concurrency.md)（`nowMin`、自動の変化の反映）、[domain-model.md](../basic/domain-model.md)（状態の移り方、数値の履歴）、[screens-and-api.md](../basic/screens-and-api.md) 7（コードは1つだけ返す）
 
 ここでは、`src/rules/` と `src/lib/`（入力の検証）の関数の形、確かめる順、自動の変化を反映する手順を決める。コードは書かず、関数の名前・引数・戻り値と判定の手順を文章と表で書く。
@@ -142,7 +142,8 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 管理者の削除 | ADM-2 | 未 |
 | 数値の変更 | RSV-25 | 未 |
 | 管理者の入力の検証（`lib/`） | ADM-2, USR-5, SEC-3 | 済（6.2） |
-| 利用者の入力の検証（`lib/`） | USR-4〜USR-6 | 一部（名前 USR-5 と、全角・大小のそろえ方は 6.2 で決めた。学籍番号・期生は未） |
+| 利用者の入力の検証（`lib/`） | USR-3〜USR-6 | 済（名前 USR-5 と全角・大小のそろえ方は 6.2、生徒か教員か・学籍番号・期生は 6.4） |
+| 利用者の入力（作る・置き換える・変わらない） | USR-7 | 済（6.5。api.md 8.15） |
 | 管理者の認証・管理者の証明・試行の上限 | ADM-2, SEC-3 | 済（6.3。試行の上限は利用の開始・保守用の API も同じ関数を使う） |
 | 利用の開始・利用者の証明 | USR-2, ADM-3, SEC-3 | 済（6.3 の `checkSharedInfo`・`checkUserSession`・`userCookie`。api.md 8.11〜8.13） |
 | 共有された情報の設定・変更 | ADM-3 | 済（判定なし。管理者の証明（6.3 の `checkAdminSession`）を通れば必ず受け付けるので、関数を作らない。値は 6.3 の `newToken`。api.md 8.9） |
@@ -239,6 +240,55 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | SEC-3（`windowStart`） | 10:09:59.999 と 10:00 が同じ区切り、10:10 は次の区切り（TIM-2 と同じく始まりを含む） | ― |
 | ADM-2（`readCookie`・`isTokenFormat`） | ほかの Cookie と並んでいても取り出せる。43文字の base64url | 42文字・44文字、`=` や `+` を含む値、ヘッダがない |
 | ADM-3（`newToken`） | `value` が43文字で `isTokenFormat` を通る。`hash` が `value` の SHA-256（32バイト）と等しい。2回呼ぶと違う値になる | ― |
+
+### 6.4 利用者の入力の検証（`src/lib/`。USR-3〜USR-6）
+
+1.2 の形で返す。利用者の入力（api.md 8.15）と、利用者の操作の API の識別の組（api.md 8.16）で使う。名前は 6.2 の `validateName` を使う。
+
+| 関数 | 手順 | `value` | コード |
+| --- | --- | --- | --- |
+| `validateRole(s)` | `'student'` か `'teacher'` のどちらかと完全に一致するか確かめる。大文字・小文字はそろえない（画面が決まった値を送る） | 入力どおりの値 | `INPUT_ROLE` |
+| `validateStudentId(role, s)` | `toHalfWidthLower`（6.2）でそろえ、`role` が `'student'` なら `^[0-9]{8}$`、`'teacher'` なら `^[a-z0-9._-]{1,64}$` に合うか確かめる。前後の空白は除かない（空白は形式の誤りになる。`validateLoginId` と同じ） | そろえた学籍番号 | `INPUT_STUDENT_ID` |
+| `validateCohort(role, v)` | `role` が `'student'` なら、`v` が数値で `Number.isSafeInteger(v)` が真で、1以上か確かめる（ない、`null`、文字列、小数、0、負の数はどれも断る）。`'teacher'` なら `v` を見ずに受け付ける | 生徒は `v`、教員は `null` | `INPUT_COHORT` |
+
+- `validateStudentId`・`validateCohort` は、先に `validateRole` を通った `role` を受け取る。
+- **先頭の0を残す（USR-4）。** 学籍番号は文字列のまま扱い、数値に直さない。7桁は、先頭の0を省いたものも含めて断る。
+- **全角はそろえてから形式を確かめる（USR-4）。** `１２３４５６７８` は `12345678` に、全角の `－`・`．`・`＿` は半角になる。長音符の `ー`（U+30FC）は全角の英数字・記号ではないのでそのまま残り、形式の誤りになる。
+- **期生は JSON の数値で受け取る。** 文字列にすると、先頭の0（`"007"`）や全角の数字の読み方を別に決めることになる。画面は入力欄の値を数値に直して送る。上限は要件にないので設けない。`Number.isSafeInteger` の範囲（2^53 − 1 まで）が、JavaScript で正確に扱える整数の上限として事実上の上限になる。
+- **期生の型の誤りも `INPUT_COHORT` にする。** ほかの項目は型の誤りを `INPUT_BODY`（共4）にするが、期生は要るかどうかが `role` で変わるので、型も含めてここで確かめる（error-codes.md 3.1）。
+- **教員の期生は送られても無視する（USR-6「教員は期生を持たない」）。** 画面で生徒から教員に切り替えると、前に入れた期生が残りやすい。`role` で意図は曖昧なく読める。
+
+テストの観点（部品の層）：
+
+| ID | 受け付ける | 断る |
+| --- | --- | --- |
+| USR-3（`validateRole`） | `student`、`teacher` | `Student`、`admin`、空 |
+| USR-4（`validateStudentId`、生徒） | `12345678`、`00000001`（先頭の0を残す）、`１２３４５６７８` → `12345678` | 7桁（`0000001` を含む）・9桁、英字を含む、前後に空白、空 |
+| USR-4（`validateStudentId`、教員） | 1文字・64文字、数字だけ、`Tanaka.T` → `tanaka.t`、`ａ－ｂ．ｃ＿ｄ` → `a-b.c_d` | 空、65文字、空白・`@`・ひらがな・長音符 `ー` を含む |
+| USR-6（`validateCohort`） | 生徒の 1、大きな整数（`Number.MAX_SAFE_INTEGER`）。教員はどんな値（ない、文字列、0）でも `null` | 生徒で、ない、`null`、0、−1、1.5、`"1"`、`Number.MAX_SAFE_INTEGER + 1` |
+
+### 6.5 利用者の入力（`src/rules/users.js`。USR-7）
+
+| 関数 | 引数 | 戻り値 |
+| --- | --- | --- |
+| `decideUserInput(existing, input)` | `existing`：store が `(role, そろえた学籍番号)` で引いた `users` の行（なければ `null`）。`input`：6.4 と `validateName` を通った後の `{ name, cohort }` | `{ ok: true, action }`。`action` は下の表 |
+
+| `action` | 条件 |
+| --- | --- |
+| `create` | `existing` が `null` |
+| `rename` | `existing.name` と `input.name`、または `existing.cohort` と `input.cohort` の少なくとも一方が違う |
+| `unchanged` | どちらも同じ |
+
+- **断る場合はない。** それでも関数にするのは、置き換えるかどうかを決めるのは判定であり、`api/` に判定を書かないため（architecture.md 4）。
+- **名前は前後の空白を除いた後の値を、そのまま比べる。** 全角・半角や Unicode の正規化はしない。表示のための値で、利用者が入れたとおりに置き換えるため（USR-7「それまでと異なれば」）。
+- 期生は数値か `null` で比べる。教員はどちらも `null` なので、名前だけで決まる。
+- 生徒か教員かは識別の組の一部なので、同じ行の中で変わることはない。
+
+テストの観点（ルールの層）：
+
+| ID | 確かめること |
+| --- | --- |
+| USR-7 | `null` なら `create`。名前だけ違う、期生だけ違うときはどちらも `rename`。どちらも同じなら `unchanged`。名前の大文字と小文字の違い、全角と半角の違いも `rename` |
 
 ## 7. 共通のテストの観点
 

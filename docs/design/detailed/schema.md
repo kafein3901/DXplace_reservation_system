@@ -230,7 +230,7 @@ CREATE INDEX events_user_at ON events (user_id, at);
 | `reservation_status` | 状態の変化（利用開始、取消、無断不使用、終了、管理者による取消・終了） | 予約・機器・利用者 | `from`、`to`、`cause`（管理者による取消・終了のとき）、書き換えた時刻（`start_at` または `end_at` の前後） |
 | `reservation_time_changed` | 時間帯の変更（RSV-9, RSV-10, RSV-15 の前倒し） | 予約・機器・利用者 | 前後の `start_at`、`end_at` |
 | `user_created` | 利用者を作った | 利用者 | `name`、`cohort` |
-| `user_renamed` | 名前・期生を置き換えた（USR-7） | 利用者 | 前後の `name`、`cohort` |
+| `user_renamed` | 名前・期生を置き換えた（USR-7） | 利用者 | `before`・`after` に、それぞれ `name`・`cohort`（片方だけ変わっても両方。api.md 8.15） |
 | `device_created`・`device_renamed`・`device_deleted` | 機器の追加・名前の変更・削除 | 機器 | 前後の `name` |
 | `setting_changed` | 数値の変更（RSV-25） | なし | `key`、前後の `value`、`effective_at` |
 | `admin_created`・`admin_deleted`・`admin_password_reset` | 管理者のアカウント | 管理者 | `login_id`、`display_name`。パスワードは入れない |
