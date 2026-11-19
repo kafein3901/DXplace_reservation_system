@@ -56,8 +56,9 @@
 
 ### 次の作業
 
-1. 上の分け方を design/README.md「詳細設計の文書」に書く。
-2. rules.md の枠組みに取りかかる。
+1. rules.md の枠組みに取りかかる。
+
+（上の分け方は design/README.md「詳細設計の文書」に書いた。2026-11-19）
 
 文書の分け方と、基本設計で作る文書の一覧は [design/README.md](design/README.md) を見る。
 

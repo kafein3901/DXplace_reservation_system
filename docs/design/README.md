@@ -27,4 +27,18 @@
 
 ## 詳細設計の文書
 
-基本設計が終わってから `detailed/` に作る。分け方は基本設計の結果で決める。
+`detailed/` に置く。状態は `docs/progress.md` で管理する。
+
+| 文書 | 決めること | 対応する `src/` |
+| --- | --- | --- |
+| `detailed/rules.md` | ルールごとの判定の手順、関数の入出力、複数のルールに反するときに確かめる順、自動の変化を反映する手順、ルールのテストの観点 | `rules/`、`lib/` |
+| `detailed/schema.md` | 表の定義（列・型・制約・索引）、初期データ、スキーマの版と起動時の順の適用 | `store/` |
+| `detailed/error-codes.md` | 理由のコードの一覧（コード・HTTP・要件の ID・どこで返すか） | `rules/`、`public/js/messages.js` |
+| `detailed/api.md` | API ごとの入出力と返しうるコード、保守用の API の `curl` 手順、Worker と台帳の受け渡し、台帳の層のテストの観点 | `api/`、`ledger.js`、`index.js` |
+| `detailed/screens.md` | 画面ごとの項目と動き、エラーの表示、手で確かめる手順の一覧 | `public/` |
+
+- 進め方：共通の部分（rules.md の枠組み、schema.md、error-codes.md、api.md の共通部分）を先に書き、その後は機能を1つずつ縦に切って、設計と実装・テストを交互に進める。実装でわかった食い違いは、その場で設計に戻す。
+- 書く順：rules.md → schema.md → error-codes.md・api.md → screens.md。
+- コードの一覧を独立させるのは、rules・api・画面の3か所が同じコードを使うため。
+- テストの観点は、観点だけの文書を作らず各文書に書く（テスト名が要件の ID で始まるので、ID で横断して探せる）。
+- rules.md にはコードを書かない。関数の名前・引数・戻り値と判定の手順を文章と表で書く（CLAUDE.md「開発の進め方」）。schema.md の `CREATE TABLE` は書いてよい。
