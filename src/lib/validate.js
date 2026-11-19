@@ -44,3 +44,32 @@ export function validatePassword(s) {
   if (!PASSWORD_PATTERN.test(s)) return { ok: false, code: 'INPUT_PASSWORD' };
   return { ok: true, value: s };
 }
+
+// 利用者の入力の検証（rules.md 6.4。USR-3〜USR-6）。
+// 利用者の入力（api.md 8.15）と、利用者の操作の API の識別の組（api.md 8.16）で使う
+
+// 生徒か教員か（USR-3）。大文字・小文字はそろえない（画面が決まった値を送る）
+export function validateRole(s) {
+  if (s !== 'student' && s !== 'teacher') return { ok: false, code: 'INPUT_ROLE' };
+  return { ok: true, value: s };
+}
+
+// 学籍番号（USR-4）。全角・大小をそろえてから形式を確かめる。先頭の0は残す。前後の空白は除かない。
+// role は validateRole を通った値
+const STUDENT_ID_PATTERN = /^[0-9]{8}$/;
+const TEACHER_ID_PATTERN = /^[a-z0-9._-]{1,64}$/;
+
+export function validateStudentId(role, s) {
+  const value = toHalfWidthLower(s);
+  const pattern = role === 'student' ? STUDENT_ID_PATTERN : TEACHER_ID_PATTERN;
+  if (!pattern.test(value)) return { ok: false, code: 'INPUT_STUDENT_ID' };
+  return { ok: true, value };
+}
+
+// 期生（USR-6）。生徒は 1 以上の安全な整数。型の誤りもここで断る（error-codes.md 3.1）。
+// 教員は期生を持たないので、送られても見ずに null にする
+export function validateCohort(role, v) {
+  if (role === 'teacher') return { ok: true, value: null };
+  if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 1) return { ok: false, code: 'INPUT_COHORT' };
+  return { ok: true, value: v };
+}

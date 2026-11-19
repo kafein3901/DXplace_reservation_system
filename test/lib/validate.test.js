@@ -1,6 +1,14 @@
 // 管理者の入力の検証（rules.md 6.2）
 import { describe, expect, test } from 'vitest';
-import { toHalfWidthLower, validateLoginId, validateName, validatePassword } from '../../src/lib/validate.js';
+import {
+  toHalfWidthLower,
+  validateCohort,
+  validateLoginId,
+  validateName,
+  validatePassword,
+  validateRole,
+  validateStudentId,
+} from '../../src/lib/validate.js';
 
 describe('ADM-2 全角・大小のそろえ方（toHalfWidthLower）', () => {
   test('ADM-2 全角の英数字と記号を半角に、英字を小文字にする', () => {
@@ -85,5 +93,88 @@ describe('SEC-3 パスワード（validatePassword）', () => {
     ['ひらがな', 'あbcdefghijklmnop'],
   ])('SEC-3 %s は INPUT_PASSWORD', (_, input) => {
     expect(validatePassword(input)).toEqual({ ok: false, code: 'INPUT_PASSWORD' });
+  });
+});
+
+// 利用者の入力の検証（rules.md 6.4）
+describe('USR-3 生徒か教員か（validateRole）', () => {
+  test.each(['student', 'teacher'])('USR-3 %s を受け付ける', (input) => {
+    expect(validateRole(input)).toEqual({ ok: true, value: input });
+  });
+
+  test.each(['Student', 'admin', ''])('USR-3 %j は INPUT_ROLE', (input) => {
+    expect(validateRole(input)).toEqual({ ok: false, code: 'INPUT_ROLE' });
+  });
+});
+
+describe('USR-4 学籍番号（validateStudentId、生徒）', () => {
+  test.each([
+    ['12345678', '12345678'],
+    ['00000001', '00000001'],
+    ['１２３４５６７８', '12345678'],
+  ])('USR-4 %s を受け付けて %s にそろえる（先頭の0は残す）', (input, value) => {
+    expect(validateStudentId('student', input)).toEqual({ ok: true, value });
+  });
+
+  test.each([
+    ['7桁', '1234567'],
+    ['先頭の0を省いた7桁', '0000001'],
+    ['9桁', '123456789'],
+    ['英字を含む', '1234567a'],
+    ['前に空白', ' 12345678'],
+    ['後ろに空白', '12345678 '],
+    ['空', ''],
+  ])('USR-4 %s は INPUT_STUDENT_ID', (_, input) => {
+    expect(validateStudentId('student', input)).toEqual({ ok: false, code: 'INPUT_STUDENT_ID' });
+  });
+});
+
+describe('USR-4 学籍番号（validateStudentId、教員）', () => {
+  test.each([
+    ['a', 'a'],
+    ['a'.repeat(64), 'a'.repeat(64)],
+    ['12345678', '12345678'],
+    ['Tanaka.T', 'tanaka.t'],
+    ['ａ－ｂ．ｃ＿ｄ', 'a-b.c_d'],
+  ])('USR-4 %s を受け付けて %s にそろえる', (input, value) => {
+    expect(validateStudentId('teacher', input)).toEqual({ ok: true, value });
+  });
+
+  test.each([
+    ['空', ''],
+    ['65文字', 'a'.repeat(65)],
+    ['空白を含む', 'tanaka t'],
+    ['@ を含む', 'tanaka@t'],
+    ['ひらがな', 'たなか'],
+    ['長音符', 'tanakaー'],
+  ])('USR-4 %s は INPUT_STUDENT_ID', (_, input) => {
+    expect(validateStudentId('teacher', input)).toEqual({ ok: false, code: 'INPUT_STUDENT_ID' });
+  });
+});
+
+describe('USR-6 期生（validateCohort）', () => {
+  test.each([1, Number.MAX_SAFE_INTEGER])('USR-6 生徒の %d を受け付ける', (input) => {
+    expect(validateCohort('student', input)).toEqual({ ok: true, value: input });
+  });
+
+  test.each([
+    ['ない', undefined],
+    ['null', null],
+    ['0', 0],
+    ['負の数', -1],
+    ['小数', 1.5],
+    ['文字列', '1'],
+    ['安全な整数を超える', Number.MAX_SAFE_INTEGER + 1],
+  ])('USR-6 生徒で %s は INPUT_COHORT', (_, input) => {
+    expect(validateCohort('student', input)).toEqual({ ok: false, code: 'INPUT_COHORT' });
+  });
+
+  test.each([
+    ['ない', undefined],
+    ['文字列', 'abc'],
+    ['0', 0],
+    ['数', 5],
+  ])('USR-6 教員は %s でも受け付けて null にする', (_, input) => {
+    expect(validateCohort('teacher', input)).toEqual({ ok: true, value: null });
   });
 });

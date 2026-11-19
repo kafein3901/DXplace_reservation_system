@@ -6,6 +6,11 @@ const RELOAD = '画面が古い可能性があります。再読み込みして�
 const COMMON = {
   NOT_FOUND_API: RELOAD,
   INPUT_BODY: RELOAD,
+  INPUT_ROLE: '生徒か教員かを選んでください。',
+  INPUT_STUDENT_ID: '学籍番号の形が正しくありません。生徒は8桁の数字、教員は英数字と「. _ -」で64文字以内です。',
+  INPUT_NAME: '名前は1〜30文字で入れてください。改行は使えません。',
+  INPUT_COHORT: '期生は1以上の整数で入れてください。',
+  NOT_FOUND_USER: '利用者の情報を入れ直してください。',
   AUTH_REQUIRED: 'QR コードを読んでください。',
   AUTH_REVOKED: 'QR コードが新しくなりました。読み直してください。',
   AUTH_SHARED_INFO_UNSET: 'まだ利用を始められません。管理者に確かめてください。',

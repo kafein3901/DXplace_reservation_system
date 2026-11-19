@@ -15,6 +15,7 @@
 // deps はテストが差し替える部品。derivePassword は PBKDF2 の関数で、テストは呼ばれた回数を数える（api.md 8.3）。
 // 本番の台帳は既定の部品で作った ROUTES だけを使う
 import { login, logout, me, prepareLogin } from './admin-auth.js';
+import { postMe } from './me.js';
 import { createAdminByMaint, resetAdminPasswordByMaint } from './maint.js';
 import { prepareSession, prepareSessionStatus, sessionStatus, startSession } from './session.js';
 import { prepareSharedInfo, setSharedInfo } from './shared-info.js';
@@ -76,6 +77,8 @@ export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
       prepare: prepareSessionStatus,
       handler: sessionStatus,
     },
+    // 利用者の入力（api.md 8.15。USR-3〜USR-7）。PBKDF2 がないので包まない
+    { method: 'POST', path: '/api/me', auth: 'user', wrap: false, handler: postMe },
   ];
 }
 

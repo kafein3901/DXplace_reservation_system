@@ -10,6 +10,8 @@
   <!-- 上の帯（screens.md 3.1）。利用の開始の画面では隠す。画面のボタンは機能ごとの実装で足す -->
   <nav id="bar" hidden>
     <button type="button" data-screen="day">予約状況</button>
+    <button type="button" data-screen="mine">自分の予約</button>
+    <button type="button" data-screen="input">利用者の入力</button>
     <span id="user-label">操作する人：未入力</span>
   </nav>
 
@@ -23,6 +25,29 @@
   <section id="screen-day" hidden>
     <h1>予約状況</h1>
     <p class="message"></p>
+  </section>
+
+  <!-- 自分の予約（screens.md 3.7。RSV-7）。中身は予約の操作の実装で足す。利用者が要る画面 -->
+  <section id="screen-mine" hidden>
+    <h1>自分の予約</h1>
+    <p class="message"></p>
+  </section>
+
+  <!-- 利用者の入力（screens.md 3.3。USR-3〜USR-7）。欄の並びは台帳が確かめる順と同じ。maxlength は付けない -->
+  <section id="screen-input" hidden>
+    <h1>利用者の入力</h1>
+    <p class="message"></p>
+    <form id="input-form">
+      <fieldset>
+        <legend>生徒か教員か</legend>
+        <label><input type="radio" name="role" value="student"> 生徒</label>
+        <label><input type="radio" name="role" value="teacher"> 教員</label>
+      </fieldset>
+      <label>学籍番号 <input type="text" id="input-student-id" autocomplete="off"></label>
+      <label>名前 <input type="text" id="input-name" autocomplete="off"></label>
+      <label id="input-cohort-label">期生 <input type="number" id="input-cohort" min="1" step="1"></label>
+      <button type="submit">決定</button>
+    </form>
   </section>
 
   <script type="module" src="js/user.js"></script>
