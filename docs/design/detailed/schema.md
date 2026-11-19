@@ -227,8 +227,8 @@ CREATE INDEX events_user_at ON events (user_id, at);
 | --- | --- | --- | --- |
 | `reservation_created` | 予約の確保 | 予約・機器・利用者 | `start_at`、`end_at` |
 | `walk_in_started` | 予約なしの利用 | 予約・機器・利用者 | `start_at`、`end_at` |
-| `reservation_status` | 状態の変化（利用開始、取消、無断不使用、終了、管理者による取消・終了） | 予約・機器・利用者 | `from`、`to`、`cause`（管理者による取消・終了のとき）、書き換えた時刻（`start_at` または `end_at` の前後） |
-| `reservation_time_changed` | 時間帯の変更（RSV-9, RSV-10, RSV-15 の前倒し） | 予約・機器・利用者 | `before`・`after` に、それぞれ `start_at`・`end_at`（片方だけ変えても両方。時間帯の変更は api.md 8.32） |
+| `reservation_status` | 状態の変化（利用開始、取消、無断不使用、終了、管理者による取消・終了） | 予約・機器・利用者 | `from`、`to`、`cause`（管理者による取消・終了のとき）、書き換えた時刻（前倒しの利用開始は `start_at`、利用終了・管理者による終了は `end_at` に、それぞれ `{before, after}`。書き換えないときは入れない。api.md 8.34・8.35） |
+| `reservation_time_changed` | 時間帯の変更（RSV-9, RSV-10。RSV-15 の前倒しは `reservation_status` に入れる。logging.md 2） | 予約・機器・利用者 | `before`・`after` に、それぞれ `start_at`・`end_at`（片方だけ変えても両方。時間帯の変更は api.md 8.32） |
 | `user_created` | 利用者を作った | 利用者 | `name`、`cohort` |
 | `user_renamed` | 名前・期生を置き換えた（USR-7） | 利用者 | `before`・`after` に、それぞれ `name`・`cohort`（片方だけ変わっても両方。api.md 8.15） |
 | `device_created`・`device_renamed`・`device_deleted` | 機器の追加・名前の変更・削除 | 機器 | 追加・削除は `name`。名前の変更は `before`・`after` に、それぞれ `name`（api.md 8.19〜8.21） |
@@ -240,6 +240,7 @@ CREATE INDEX events_user_at ON events (user_id, at);
 - 予約の出来事には、その予約の `device_id` と `user_id` を必ず入れる（FUT-4。logging.md 2）。
 - `detail` の時刻はミリ秒の数値で入れる（SQL で日本時間に直せる。logging.md 6）。
 - 状態の変化を1つの `kind` にまとめ、どの状態へ移ったかは `detail` の `to` で区別する。LOG-3 の区別（取消・無断不使用・管理者による取消、終了・管理者による終了）は `to` の値で表せる。本人の操作による終了か自動による終了かは、`actor_kind` で区別する（domain-model.md 4.1）。
+- 状態の変化に伴う時刻の書き換えは、その `reservation_status` の1行に入れ、`reservation_time_changed` を別に書かない（1回の操作を1行にする。logging.md 2。2026-11-19 に利用開始の設計で決めた）。LOG-3 の「時間帯の変更（RSV-15 を含む）」は、`reservation_time_changed` と、`detail` に `start_at` を持つ `reservation_status` を合わせて引く。
 - `detail` に入れる項目は `kind` ごとに決めた形だけにし、リクエストの本文をそのまま入れない（logging.md 3）。
 - `detail` の細かい項目は、機能ごとの設計で確かめる。足すのはよいが、すでに入れた項目の意味は変えない。
 

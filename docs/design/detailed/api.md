@@ -1,8 +1,8 @@
 # API
 
-- 状態：作成中（共通の部分、保守用の API、管理者の認証、共有された情報の設定、利用の開始、利用者の入力、機器、予約状況・確保、予約なしの利用、自分の予約・取消、時間帯の変更を決定。残りの API の入出力は、機能ごとの設計で足す）
+- 状態：作成中（共通の部分、保守用の API、管理者の認証、共有された情報の設定、利用の開始、利用者の入力、機器、予約状況・確保、予約なしの利用、自分の予約・取消、時間帯の変更、利用開始・利用終了を決定。残りの API の入出力は、機能ごとの設計で足す）
 - 日付：2026-11-19
-- 関係する要件：USR-1〜USR-7, LOG-1〜LOG-4, MNG-1, MNG-2, VIW-1, RSV-2〜RSV-12, RSV-16, RSV-17, RSV-20, TIM-1〜TIM-7, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
+- 関係する要件：USR-1〜USR-7, LOG-1〜LOG-4, MNG-1, MNG-2, VIW-1, RSV-2〜RSV-20, TIM-1〜TIM-7, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
 - 前提：[architecture.md](../basic/architecture.md) 1, 3, 4（Worker は渡すだけ、手順 1〜7）、[screens-and-api.md](../basic/screens-and-api.md) 4〜7（API の一覧、応答の形）、[auth.md](../basic/auth.md) 1, 3, 6, 7（入口の種類、Cookie と Origin、保守用の鍵、試行の制限）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 2, 4（時刻を取る位置、`blockConcurrencyWhile`）、[error-codes.md](error-codes.md)、[schema.md](schema.md) 5（版の適用）
 
 ここでは、すべての API に共通の受け渡しの形、Worker と台帳の受け渡し、デプロイの直後の版の食い違いへの備え、保守用の API の `curl` 手順の形を決める。API ごとの入出力と返しうるコードは、機能ごとの設計で 8 に足す。
@@ -217,6 +217,7 @@ API を変えるときの決まり：
 | `POST /api/walk-ins` | 予約なしの利用（RSV-17, RSV-20） | 済（8.27〜8.28） |
 | `POST /api/my/reservations`、`POST /api/reservations/{id}/cancel` | 自分の予約・取消（RSV-7, RSV-8） | 済（8.29〜8.31） |
 | `POST /api/reservations/{id}/change` | 時間帯の変更（RSV-9〜RSV-12） | 済（8.32〜8.33） |
+| `POST /api/reservations/{id}/begin`、`…/finish` | 利用開始・利用終了（RSV-13〜RSV-16, RSV-18, RSV-19） | 済（8.34〜8.36） |
 | screens-and-api.md 5 の一覧の残りすべて | rules.md 6 の表の各機能と、利用者の入力・予約状況 | 未 |
 
 ### 8.1 `POST /api/maint/admins`（管理者の作成。ADM-2）
@@ -1316,6 +1317,131 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | USR-4 | 識別の組の利用者がいなければ `NOT_FOUND_USER` |
 | USR-2 | Cookie がないと `AUTH_REQUIRED`、`Origin` がないと `AUTH_ORIGIN`。管理者の Cookie だけでも `AUTH_REQUIRED`（ADM-1） |
 | API | `{id}` が `0`・`01`・`abc` なら `NOT_FOUND_API` |
+
+### 8.34 `POST /api/reservations/{id}/begin`（利用開始。RSV-14〜RSV-16, RSV-6, RSV-23, TIM-4, LOG-3）
+
+利用者の画面の「自分の予約」で、予約済の予約の「利用開始」を押したときに呼ぶ。経路の表では、認証の種類は「利用者」、包むかは「包まない」。
+
+要求：
+
+| もの | 内容 |
+| --- | --- |
+| パスの `{id}` | 予約の番号。正の整数の形でなければ `NOT_FOUND_API`（2） |
+| 本文の `role`・`student_id` | 識別の組（8.16）。文字列で、省略できない |
+
+開始時刻は受け取らない（RSV-15、TIM-4、RSV-24）。`start` が送られても、知らない項目として無視する（2）。
+
+処理：
+
+1. 準備：本文を読む。利用者の Cookie の値のハッシュを求める（8.12 の 1）。
+2. `clock()` で現在時刻 `now` を取り、`nowMin = floorMinute(now)`。
+3. 共2（`Origin`）→ 共3（8.12 の 2）→ 共4（本文が JSON のオブジェクトで、`role`・`student_id` が文字列であること）。
+4. 段 1：`validateRole` → `validateStudentId`（8.16）。
+5. `transactionSync` の中で：
+   1. 自動の変化を反映する（rules.md 5）。
+   2. store が引く：識別の組の利用者（8.16）、`{id}` の予約（状態を問わない。なければ `null`）、数値の履歴の全件、その予約の `device_id` の機器の予約済・利用中の全件（`reservations_device_status`。その予約自身を含む）。予約が `null` なら機器の予約は空の配列とする（8.32 と同じ）。
+   3. `checkBegin`（rules.md 6.14）。断られたら、そのコードを返す（反映した自動の変化は残る。8.19）。
+   4. 予約の `status` を `in_use` に、`start_at` を返された `start` にする（前倒しでなければ値は変わらない）。`end_at`・`cause`・`walk_in`・`device_id` は変えない。記録を書く。
+6. 成功を返す（`Set-Cookie` で期限を延ばす。8.12）。
+
+決めたことと理由：
+
+- **予約は番号だけで引き、本人のものかは rules が確かめる（8.30 と同じ）。**
+- **段 1 で断るときは何も書かない。** 自動の変化も反映しない（8.25 と同じ）。
+- **開始時刻は rules が返した値を書く（rules.md 1.1）。** `api/` は前倒しかどうかを自分で決めない。
+- **自動の変化が先（RSV-22）。** 開始時刻＋猶予（猶予より短い予約は終了時刻。RSV-16）がちょうど `nowMin` の予約済は 5.1 で無断不使用になり、利用開始は `STATE_NOT_RESERVED` になる。`[nowMin, 開始)` にかかる他の予約のうち、終了時刻がちょうど `nowMin` の利用中、無断不使用になる時刻がちょうど `nowMin` の予約済は、先に解放されていて前倒しを妨げない。
+- **ほぼ同時の操作（RSV-3, RSV-23）。** 3 の後から 5 の終わりまでに `await` がないので、包まなくても割り込まれない。前倒しと、同じ機器の `[nowMin, 開始)` にかかる確保・予約なしの利用・時間帯の変更が同時なら、先に処理された方の行を見て、後の方が断られる（後が前倒しなら `RULE_BEGIN_OVERLAP`、後が確保などなら `RULE_OVERLAP`・`RULE_DEVICE_BUSY`）。同じ予約への利用開始と取消・機器の削除が同時なら、後の方が状態で断られる。同じ予約への利用開始を2つ同時に送ると、後の要求は `STATE_NOT_RESERVED`。
+- **時刻。** 前倒しの開始時刻は `nowMin`（秒を切り捨てる。TIM-4）。記録の `at` は `now`（秒を切り捨てない。TIM-5）。
+
+応答の `data`：8.25 と同じ形（`id`・`device_id`・`start`・`end`・`status`）。`start` は書いた後の値（前倒しなら `formatDateTime(nowMin)`）、`status` は `in_use`。画面は成功したら自分の予約と予約状況を取り直す（VIW-3）。
+
+返しうるコード（確かめる順）：
+
+| 順 | コード | 段 |
+| --- | --- | --- |
+| 1 | `NOT_FOUND_API`（`{id}` が正の整数の形でないときも） | 共1 |
+| 2 | `AUTH_ORIGIN` | 共2 |
+| 3 | `AUTH_REQUIRED`・`AUTH_REVOKED` | 共3 |
+| 4 | `INPUT_BODY` | 共4 |
+| 5 | `INPUT_ROLE` → `INPUT_STUDENT_ID` | 1 |
+| 6 | `NOT_FOUND_USER` → `NOT_FOUND_RESERVATION` | 2 |
+| 7 | `STATE_NOT_RESERVED` | 3 |
+| 8 | `RULE_BEGIN_LENGTH` | 6 |
+| 9 | `RULE_BEGIN_OVERLAP` | 8 |
+
+記録（`events`。LOG-1, LOG-3）：`at = now`、`actor_kind = 'user'`、`kind = 'reservation_status'`、`reservation_id`・`device_id`・`user_id` はその予約の値、`actor_admin_id`・`admin_id` は `NULL`。`detail` は次の形：
+
+| 場合 | `detail` |
+| --- | --- |
+| 前倒し（開始時刻を書き換えた） | `{"from": "reserved", "to": "in_use", "start_at": {"before": ミリ秒, "after": ミリ秒}}` |
+| 前倒しでない | `{"from": "reserved", "to": "in_use"}` |
+
+前倒しでも `reservation_time_changed` は書かない（1回の操作を1行にする。schema.md 2.9、logging.md 2）。断ったときは書かない（反映した自動の変化の記録を除く）。
+
+### 8.35 `POST /api/reservations/{id}/finish`（利用終了。RSV-18, RSV-19, RSV-23, TIM-4, TIM-7, LOG-3）
+
+利用者の画面の「自分の予約」で、利用中の予約の「利用終了」を押したときに呼ぶ。経路の表では、認証の種類は「利用者」、包むかは「包まない」。
+
+要求：8.34 と同じ（パスの `{id}` と本文の識別の組だけ）。終了時刻は受け取らない（RSV-18、TIM-4）。`end` が送られても無視する（2）。
+
+処理：8.34 と同じ流れで、5 を次のようにする。
+
+1. 自動の変化を反映する（rules.md 5）。
+2. store が引く：識別の組の利用者（8.16）、`{id}` の予約（状態を問わない。なければ `null`）。数値の履歴と機器の予約は引かない。
+3. `checkFinish`（rules.md 6.15）。断られたら、そのコードを返す（反映した自動の変化は残る）。
+4. 予約の `status` を `finished` に、`end_at` を返された `end`（`nowMin`）にする。`cause` は `NULL` のまま、`start_at`・`walk_in`・`device_id` は変えない。記録を書く。
+
+決めたことと理由：
+
+- **終了は本人の操作でも自動でも `finished`（schema.md 2.3、domain-model.md 4.1）。** どちらによるかは記録の `actor_kind` で区別する。
+- **自動の変化が先（RSV-19, RSV-22）。** 終了時刻がちょうど `nowMin` の利用中は 5.1 で自動で終了になり（`end_at` は変わらない）、利用終了は `STATE_NOT_IN_USE` になる。
+- **直ちに解放する（RSV-19）。** 状態を `finished` にした時点で重なりの対象から外れる。`[nowMin, 元の終了)` は、その場で確保・予約なしの利用ができる。
+- **長さ0を認める（TIM-7）。** 予約なしの利用・前倒しの利用開始と同じ分に終えると `start_at = end_at` になる。表に「終了 > 開始」の制約はない（schema.md 2.3）。予約状況では開始時刻を含む日に出る（rules.md 6.9）。
+- **ほぼ同時の操作（RSV-23）。** 3 の後から 5 の終わりまでに `await` がないので、包まなくても割り込まれない。同じ予約への利用終了を2つ同時に送ると、後の要求は `STATE_NOT_IN_USE`。利用終了と終了時刻の延長が同時なら、先に処理された方の結果を見て、後の延長は `STATE_NOT_ACTIVE`、後の利用終了は延長後の予約を終える。
+- **時刻。** 終了時刻は `nowMin`（TIM-4）。記録の `at` は `now`（TIM-5）。
+
+応答の `data`：8.25 と同じ形。`end` は `formatDateTime(nowMin)`、`status` は `finished`。画面は成功したら自分の予約と予約状況を取り直す（VIW-3）。
+
+返しうるコード（確かめる順）：
+
+| 順 | コード | 段 |
+| --- | --- | --- |
+| 1 | `NOT_FOUND_API`（`{id}` が正の整数の形でないときも） | 共1 |
+| 2 | `AUTH_ORIGIN` | 共2 |
+| 3 | `AUTH_REQUIRED`・`AUTH_REVOKED` | 共3 |
+| 4 | `INPUT_BODY` | 共4 |
+| 5 | `INPUT_ROLE` → `INPUT_STUDENT_ID` | 1 |
+| 6 | `NOT_FOUND_USER` → `NOT_FOUND_RESERVATION` | 2 |
+| 7 | `STATE_NOT_IN_USE` | 3 |
+
+記録（`events`。LOG-1, LOG-3）：`at = now`、`actor_kind = 'user'`、`kind = 'reservation_status'`、`reservation_id`・`device_id`・`user_id` はその予約の値、`actor_admin_id`・`admin_id` は `NULL`、`detail` は `{"from": "in_use", "to": "finished", "end_at": {"before": ミリ秒, "after": ミリ秒}}`（予定していた終了時刻を `before` に残す。schema.md 2.3）。自動の終了（RSV-19）は `end_at` を書き換えないので、その記録の `detail` に `end_at` は入らない。断ったときは書かない（反映した自動の変化の記録を除く）。
+
+### 8.36 台帳の層のテストの観点（利用開始・利用終了）
+
+時計は例として 10:00:30（`nowMin` = 10:00）、猶予は初期値（15分）。
+
+| ID | 確かめること |
+| --- | --- |
+| RSV-14 | 本人の予約済 [10:00, 11:00) を利用開始すると、`status` が `in_use`、`start_at` は 10:00 のまま、応答の `status` が `in_use`。`reservation_status` が1行でき、`detail` が `{"from":"reserved","to":"in_use"}`（`start_at` を含まない）、`actor_kind = 'user'`、`at` は秒を切り捨てていない時刻 |
+| RSV-13 | 開始 9:50 の予約済（猶予のうち）は利用開始でき、`start_at` は 9:50 のまま。開始 9:45 の予約済（猶予の終わりがちょうど `nowMin`）は無断不使用になり（記録は自動・9:45＋15分 = 10:00）、利用開始は `STATE_NOT_RESERVED`（409） |
+| RSV-16 | [9:55, 10:05) の予約済（猶予より短い）は 10:00 に利用開始できる。利用開始しないまま時計を 10:05 にすると無断不使用になり（記録の `at` は 10:05）、利用開始は `STATE_NOT_RESERVED` |
+| RSV-15 | 予約済 [10:30, 11:00) を利用開始すると、`start_at` が 10:00 になり、応答の `start` が `formatDateTime(nowMin)`。記録は `reservation_status` の1行だけで、`detail` が `{"from":"reserved","to":"in_use","start_at":{"before":10:30 のミリ秒,"after":10:00 のミリ秒}}`。`reservation_time_changed` は書かれない |
+| RSV-15 | 同じ機器に [10:00, 10:30) の予約済（他の人でも同じ人でも）があると、[10:30, 11:00) の利用開始は `RULE_BEGIN_OVERLAP`（409）で、表と `events` が変わらない。既存が別の機器、または取消済みなら成功する |
+| RSV-22 | 同じ機器に、終了時刻がちょうど 10:00 の利用中 [9:00, 10:00) があっても、[10:30, 11:00) の前倒しは成功する（先に自動で終了になる。記録は自動・10:00） |
+| RSV-6 | [10:30, 翌 10:00) の予約済の前倒しは成功、[10:30, 翌 10:01) は `RULE_BEGIN_LENGTH`。数値の履歴に `max_length_minutes = 60` の行（`effective_at` が `nowMin`）を入れると、確保済みの [10:00, 12:00) は開始ちょうどに利用開始でき、[10:30, 11:31) の前倒しは `RULE_BEGIN_LENGTH` |
+| RSV-5 | 予約で始めた利用中は、確保の件数に数え続ける（`walk_in` が 0 のまま。8.26 の RSV-4 と合わせて） |
+| RSV-14 | 利用中（2回目の利用開始）、取消・終了などの予約の利用開始は `STATE_NOT_RESERVED`。他の利用者の予約、ない番号は `NOT_FOUND_RESERVATION`（404） |
+| RSV-18 | 本人の利用中 [9:00, 11:00) を利用終了すると、`status` が `finished`（`cause` は `NULL`）、`end_at` が 10:00、応答の `end` が `formatDateTime(nowMin)`・`status` が `finished`。`reservation_status` が1行でき、`detail` が `{"from":"in_use","to":"finished","end_at":{"before":11:00 のミリ秒,"after":10:00 のミリ秒}}`、`actor_kind = 'user'` |
+| RSV-19 | 利用終了した直後に、同じ機器の [10:00, 11:00) を別の人が確保・予約なしの利用で使える |
+| RSV-19 | 終了時刻がちょうど 10:00 の利用中は自動で終了になり（`end_at` は変わらない、記録は `actor_kind = 'auto'`・`at` は 10:00・`detail` に `end_at` を含まない）、利用終了は `STATE_NOT_IN_USE`（409） |
+| TIM-7 | 時計 10:00:10 に予約なしの利用を始め、10:00:50 に利用終了すると `start_at = end_at` = 10:00 で成功する。その日の予約状況に `finished` として出る |
+| RSV-17 | 予約なしの利用で始めた利用中も利用終了できる |
+| RSV-18 | 予約済・2回目の利用終了は `STATE_NOT_IN_USE`。他の利用者の予約、ない番号は `NOT_FOUND_RESERVATION` |
+| RSV-23 | 同じ予約への利用開始を2つ同時に送ると、1つが成功し、もう1つが `STATE_NOT_RESERVED`（記録は1行）。前倒しの利用開始と、同じ機器の [10:00, 10:30) の確保を同時に送ると、どちらか1つだけが成功する。利用終了を2つ同時に送ると、1つが `STATE_NOT_IN_USE` |
+| RSV-21 | 段 2 以降で断っても、反映した自動の変化が残る。段 1 で断ったときは変わらない |
+| USR-4 | 識別の組の利用者がいなければ、どちらも `NOT_FOUND_USER` |
+| USR-2 | どちらも、Cookie がないと `AUTH_REQUIRED`、`Origin` がないと `AUTH_ORIGIN`。管理者の Cookie だけでも `AUTH_REQUIRED`（ADM-1） |
+| API | `{id}` が `0`・`01`・`abc` なら `NOT_FOUND_API`。本文に `start`・`end` を入れても無視される（前倒しの開始は `nowMin`、終了は `nowMin`） |
 
 ## 採らなかった案
 
