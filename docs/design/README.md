@@ -35,7 +35,7 @@
 | [detailed/schema.md](detailed/schema.md) | 表の定義（列・型・制約・索引）、初期データ、スキーマの版と起動時の順の適用 | `store/` |
 | [detailed/error-codes.md](detailed/error-codes.md) | 理由のコードの一覧（コード・HTTP・要件の ID・どこで返すか） | `rules/`、`public/js/messages.js` |
 | [detailed/api.md](detailed/api.md) | API ごとの入出力と返しうるコード、保守用の API の `curl` 手順、Worker と台帳の受け渡し、台帳の層のテストの観点 | `api/`、`ledger.js`、`index.js` |
-| `detailed/screens.md` | 画面ごとの項目と動き、エラーの表示、手で確かめる手順の一覧 | `public/` |
+| [detailed/screens.md](detailed/screens.md) | 画面ごとの項目と動き、エラーの表示、手で確かめる手順の一覧 | `public/` |
 
 - 進め方：共通の部分（rules.md の枠組み、schema.md、error-codes.md、api.md の共通部分）を先に書き、その後は機能を1つずつ縦に切って、すべての機能の設計を書き終える。詳細設計をレビューしてから、機能ごとに実装と個別のテストを行い、最後に結合テストをしてデプロイする。実装でわかった食い違いは、設計文書を先に直してから進める。
 - 書く順：rules.md → schema.md → error-codes.md・api.md → screens.md。
