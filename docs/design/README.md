@@ -41,4 +41,4 @@
 - 書く順：rules.md → schema.md → error-codes.md・api.md → screens.md。
 - コードの一覧を独立させるのは、rules・api・画面の3か所が同じコードを使うため。
 - テストの観点は、観点だけの文書を作らず各文書に書く（テスト名が要件の ID で始まるので、ID で横断して探せる）。
-- rules.md にはコードを書かない。関数の名前・引数・戻り値と判定の手順を文章と表で書く（CLAUDE.md「開発の進め方」）。schema.md の `CREATE TABLE` は書いてよい。
+- rules.md にはコードを書かない。関数の名前・引数・戻り値と判定の手順を文章と表で書く（設計とコードを二重に持たないため）。schema.md の `CREATE TABLE` は書いてよい。
