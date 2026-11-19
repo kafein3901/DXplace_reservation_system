@@ -1,4 +1,4 @@
-// 確保（rules.md 6.10）。時刻は nowMin = 10:00、上限は初期値（3件、1440分）
+// 確保・予約なしの利用（rules.md 6.10・6.11）。時刻は nowMin = 10:00、上限は初期値（3件、1440分）
 import { describe, expect, test } from 'vitest';
 import {
   checkCount,
@@ -8,6 +8,8 @@ import {
   checkReserve,
   checkStartNotPast,
   checkTimeOrder,
+  checkVacant,
+  checkWalkIn,
 } from '../../src/rules/reservations.js';
 
 const MIN = 60_000;
@@ -214,6 +216,111 @@ describe('RSV-2 確保（checkReserve）', () => {
       expect(checkReserve({ ...base, userActive: three, deviceActive: [r()] })).toEqual({
         ok: false,
         code: 'RULE_COUNT',
+      });
+    });
+  });
+});
+
+describe('RSV-20 空いている（checkVacant。TIM-2）', () => {
+  test('RSV-20 予約がない・ちょうど nowMin に終わる・nowMin より後に始まるなら受け付ける', () => {
+    expect(checkVacant([], NOW)).toEqual({ ok: true });
+    expect(checkVacant([r({ start: T(9), end: T(10) })], NOW)).toEqual({ ok: true });
+    expect(checkVacant([r({ start: T(10, 1), end: T(11) })], NOW)).toEqual({ ok: true });
+  });
+
+  test.each(PAST_STATES)('RSV-20 [9:00, 11:00) が %s なら受け付ける', (status) => {
+    expect(checkVacant([r({ start: T(9), end: T(11), status })], NOW)).toEqual({ ok: true });
+  });
+
+  test.each(['in_use', 'reserved'])('RSV-20 [9:00, 11:00) が %s なら RULE_DEVICE_BUSY', (status) => {
+    expect(checkVacant([r({ start: T(9), end: T(11), status })], NOW)).toEqual({ ok: false, code: 'RULE_DEVICE_BUSY' });
+  });
+
+  test('RSV-20 ちょうど nowMin に始まる予約があれば RULE_DEVICE_BUSY', () => {
+    expect(checkVacant([r({ start: T(10), end: T(11) })], NOW)).toEqual({ ok: false, code: 'RULE_DEVICE_BUSY' });
+  });
+});
+
+describe('RSV-17 予約なしの利用（checkWalkIn）', () => {
+  const user = { id: 1, role: 'student', student_id: '12345678', name: '山田', cohort: 12 };
+  const device = { id: 1, name: 'PC1', created_at: 0, deleted_at: null };
+  const deletedDevice = { ...device, deleted_at: 1 };
+  const base = { user, device, end: T(11), nowMin: NOW, settings: SETTINGS, deviceActive: [] };
+  const busy = r({ start: T(9), end: T(11), status: 'in_use' });
+
+  test('RSV-17 すべての段を通る入力は受け付け、start は nowMin', () => {
+    expect(checkWalkIn(base)).toEqual({ ok: true, start: NOW });
+    expect(checkWalkIn({ ...base, end: T(10, 1) })).toEqual({ ok: true, start: NOW });
+  });
+
+  test('RSV-17 user が null なら NOT_FOUND_USER', () => {
+    expect(checkWalkIn({ ...base, user: null })).toEqual({ ok: false, code: 'NOT_FOUND_USER' });
+  });
+
+  test('MNG-1 device が null・削除済みなら NOT_FOUND_DEVICE', () => {
+    expect(checkWalkIn({ ...base, device: null })).toEqual({ ok: false, code: 'NOT_FOUND_DEVICE' });
+    expect(checkWalkIn({ ...base, device: deletedDevice })).toEqual({ ok: false, code: 'NOT_FOUND_DEVICE' });
+  });
+
+  test('TIM-6 終了がちょうど nowMin・それより前なら RULE_PAST（RULE_TIME_ORDER にならない）', () => {
+    expect(checkWalkIn({ ...base, end: T(10) })).toEqual({ ok: false, code: 'RULE_PAST' });
+    expect(checkWalkIn({ ...base, end: T(9, 59) })).toEqual({ ok: false, code: 'RULE_PAST' });
+  });
+
+  test('RSV-6 1440分は受け付け、1441分は RULE_LENGTH', () => {
+    expect(checkWalkIn({ ...base, end: T(34) })).toEqual({ ok: true, start: NOW }); // 翌日 10:00
+    expect(checkWalkIn({ ...base, end: T(34, 1) })).toEqual({ ok: false, code: 'RULE_LENGTH' });
+  });
+
+  test('RSV-6 上限を 60 に変えた履歴（effective_at が nowMin ちょうど）では61分を RULE_LENGTH', () => {
+    const settings = [...SETTINGS, { id: 4, key: 'max_length_minutes', value: 60, effective_at: NOW }];
+    expect(checkWalkIn({ ...base, settings, end: T(11, 1) })).toEqual({ ok: false, code: 'RULE_LENGTH' });
+    expect(checkWalkIn({ ...base, settings, end: T(11) })).toEqual({ ok: true, start: NOW });
+  });
+
+  test('RSV-3 予約済 [10:30, 11:00) に対して終了 10:30 は受け付け、10:31 は RULE_OVERLAP（自分の予約でも）', () => {
+    const later = r({ start: T(10, 30), end: T(11) }); // user_id は利用者と同じ 1
+    expect(checkWalkIn({ ...base, end: T(10, 30), deviceActive: [later] })).toEqual({ ok: true, start: NOW });
+    expect(checkWalkIn({ ...base, end: T(10, 31), deviceActive: [later] })).toEqual({
+      ok: false,
+      code: 'RULE_OVERLAP',
+    });
+  });
+
+  test('RSV-20 現在時刻を含む予約があれば RULE_DEVICE_BUSY（自分の予約でも）', () => {
+    expect(checkWalkIn({ ...base, deviceActive: [busy] })).toEqual({ ok: false, code: 'RULE_DEVICE_BUSY' });
+  });
+
+  test('RSV-17 件数を数えないので、予約済・利用中が上限（3件）ある利用者でも受け付ける', () => {
+    // checkWalkIn は利用者の予約を受け取らない。上限ちょうどの件数があっても判定に入らない
+    const three = [r({ deviceId: 2 }), r({ deviceId: 2 }), r({ deviceId: 3 })];
+    expect(checkWalkIn({ ...base, userActive: three })).toEqual({ ok: true, start: NOW });
+  });
+
+  describe('RSV-27 確かめる順', () => {
+    test('RSV-27 user が null で機器も削除済み → NOT_FOUND_USER', () => {
+      expect(checkWalkIn({ ...base, user: null, device: deletedDevice })).toEqual({
+        ok: false,
+        code: 'NOT_FOUND_USER',
+      });
+    });
+
+    test('RSV-27 過去かつ空いていない → RULE_PAST', () => {
+      expect(checkWalkIn({ ...base, end: T(10), deviceActive: [busy] })).toEqual({ ok: false, code: 'RULE_PAST' });
+    });
+
+    test('RSV-27 長さ超えかつ空いていない → RULE_LENGTH', () => {
+      expect(checkWalkIn({ ...base, end: T(34, 1), deviceActive: [busy] })).toEqual({
+        ok: false,
+        code: 'RULE_LENGTH',
+      });
+    });
+
+    test('RSV-27 空いていないかつ後の予約とも重なる → RULE_DEVICE_BUSY', () => {
+      const later = r({ start: T(11, 30), end: T(12) });
+      expect(checkWalkIn({ ...base, end: T(12), deviceActive: [busy, later] })).toEqual({
+        ok: false,
+        code: 'RULE_DEVICE_BUSY',
       });
     });
   });

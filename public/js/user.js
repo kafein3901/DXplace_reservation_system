@@ -13,8 +13,8 @@ let user = null;
 // 利用者が要る画面を出そうとして利用者がいなかったときの行き先（screens.md 3.1）
 let destination = null;
 
-// 利用者が要る画面。予約なしの利用は予約の操作②の実装で足す
-const NEEDS_USER = new Set(['reserve', 'mine', 'change']);
+// 利用者が要る画面
+const NEEDS_USER = new Set(['reserve', 'walk-in', 'mine', 'change']);
 
 // ログインと登録の画面。行き来しても覚えた行き先は消さない（screens.md 3.1）
 const USER_ENTRY = new Set(['login', 'register']);
@@ -30,6 +30,8 @@ function show(name) {
   if (name === 'change' && user !== null) fillChangeForm();
   // 確保は出すたびに機器の名前と時刻の初期値を入れ直す（screens.md 3.5）
   if (name === 'reserve') fillReserveForm();
+  // 予約なしの利用も出すたびに入れ直す（screens.md 3.6）
+  if (name === 'walk-in') fillWalkInForm();
   // 予約状況は出すたびに取り直す（screens.md 3.1）。応答は後で届くので、呼んだ側がこの後に出す文は消えない
   if (name === 'day') loadDayDevices();
 }
@@ -102,6 +104,7 @@ const dayEmpty = document.getElementById('day-empty');
 const dayNone = document.getElementById('day-none');
 const daySlotsList = document.getElementById('day-slots');
 const dayReserveButton = document.getElementById('day-reserve');
+const dayWalkInButton = document.getElementById('day-walk-in');
 
 // 直近の応答の now（YYYY-MM-DDTHH:mm、日本時間）。初期値はこれから作り、端末の時計は読まない（screens.md 2.8・3.1）
 let now = null;
@@ -131,6 +134,7 @@ async function loadDayDevices() {
   dayEmpty.hidden = devices.length > 0;
   dayDeviceField.disabled = devices.length === 0;
   dayReserveButton.disabled = devices.length === 0;
+  dayWalkInButton.disabled = devices.length === 0;
 
   if (dayDateField.value === '') dayDateField.value = now.slice(0, 10);
 
@@ -242,6 +246,8 @@ document.getElementById('day-refresh').addEventListener('click', async (event) =
 
 // 「予約する」：確保を出す。利用者がなければ行き先を覚えてログインへ（screens.md 3.1・3.4）
 dayReserveButton.addEventListener('click', () => open('reserve'));
+// 機器が空いているかは画面で判定しない。空いていなければ台帳が RULE_DEVICE_BUSY で断る（RSV-24）
+dayWalkInButton.addEventListener('click', () => open('walk-in'));
 
 // ---- 確保（screens.md 3.5。RSV-2〜RSV-6） ----
 
@@ -292,6 +298,50 @@ reserveForm.addEventListener('submit', async (event) => {
 });
 
 document.getElementById('reserve-back').addEventListener('click', () => show('day'));
+
+// ---- 予約なしの利用（screens.md 3.6。RSV-17, RSV-20） ----
+
+const walkInForm = document.getElementById('walk-in-form');
+const walkInDeviceLabel = document.getElementById('walk-in-device');
+const walkInEndField = document.getElementById('walk-in-end');
+
+// 初期値：終了は now の60分後。開始の欄はない（台帳が nowMin にする。api.md 8.27）
+function fillWalkInForm() {
+  walkInDeviceLabel.textContent = selectedDevice === null ? '' : selectedDevice.name; // SEC-1
+  if (now === null) return;
+  walkInEndField.value = addMinutes(now, 60);
+}
+
+walkInForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  setMessage('walk-in', '', null);
+  if (user === null) return showError('NOT_FOUND_USER');
+  if (selectedDevice === null) return show('day');
+  const end = walkInEndField.value;
+  if (end === '') return setMessage('walk-in', '終了時刻を入れてください。', 'error');
+
+  // 開始時刻は送らない。判定は台帳が行う（RSV-24）
+  const result = await submitWith(walkInForm, '/api/walk-ins', {
+    role: user.role,
+    student_id: user.student_id,
+    device_id: selectedDevice.id,
+    end,
+  });
+  if (!result.ok) {
+    // 機器が削除されていたら予約状況に戻って文を出す（screens.md 3.5 と同じ）
+    if (result.code === 'NOT_FOUND_DEVICE') {
+      show('day');
+      return setMessage('day', messageFor(result.code), 'error');
+    }
+    // ほかのコードはこの画面に文を出し、欄を残す
+    return showError(result.code);
+  }
+  // 成功したら予約状況を出す（出すときに取り直す。VIW-3）
+  show('day');
+  setMessage('day', '使い始めました。使い終わったら「自分の予約」から利用終了してください。', 'success');
+});
+
+document.getElementById('walk-in-back').addEventListener('click', () => show('day'));
 
 // ---- ログイン・登録・名前と期生の変更（screens.md 3.3。USR-3〜USR-7） ----
 

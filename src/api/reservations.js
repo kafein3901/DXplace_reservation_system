@@ -1,4 +1,4 @@
-// 予約の操作（docs/design/detailed/api.md 8.16・8.25。RSV-2〜RSV-6, RSV-23, TIM-6, LOG-3）
+// 予約の操作（docs/design/detailed/api.md 8.16・8.25・8.27。RSV-2〜RSV-6, RSV-17, RSV-20, RSV-23, TIM-4, TIM-6, LOG-3）
 // 共2・共3・共4（本文を読めたか）は ledger.js が確かめ、期限の延長も ledger.js が付ける（api.md 8.12）。
 // 共3 から書き込みの終わりまで await がないので、ほぼ同時の要求も1つずつ処理される（RSV-23）
 import { applyAutoTransitions } from './auto.js';
@@ -6,7 +6,7 @@ import { ok, refuse } from './respond.js';
 import { hasStringFields } from '../lib/body.js';
 import { formatDateTime, parseDateTime } from '../lib/time.js';
 import { validateRole, validateStudentId } from '../lib/validate.js';
-import { checkReserve } from '../rules/reservations.js';
+import { checkReserve, checkWalkIn } from '../rules/reservations.js';
 import { findDevice } from '../store/devices.js';
 import { insertEvent } from '../store/events.js';
 import {
@@ -29,6 +29,17 @@ function validateIdentity(body) {
   const studentId = validateStudentId(role.value, body.student_id);
   if (!studentId.ok) return studentId;
   return { ok: true, role: role.value, studentId: studentId.value };
+}
+
+// 確保・予約なしの利用の応答の data（api.md 8.25・8.27 で同じ形）
+function reservationData(reservation) {
+  return {
+    id: reservation.id,
+    device_id: reservation.device_id,
+    start: formatDateTime(reservation.start_at),
+    end: formatDateTime(reservation.end_at),
+    status: reservation.status,
+  };
 }
 
 // POST /api/reservations（api.md 8.25）
@@ -88,12 +99,63 @@ export function createReservation({ storage, body, now, nowMin }) {
   });
   if (result.code !== undefined) return refuse(result.code);
 
-  const { reservation } = result;
-  return ok({
-    id: reservation.id,
-    device_id: reservation.device_id,
-    start: formatDateTime(reservation.start_at),
-    end: formatDateTime(reservation.end_at),
-    status: reservation.status,
+  return ok(reservationData(result.reservation));
+}
+
+// POST /api/walk-ins（api.md 8.27）。開始時刻は受け取らず、台帳が nowMin にする（RSV-17, TIM-4, RSV-24）。
+// 本文に start があっても知らない項目として読まない
+export function startWalkIn({ storage, body, now, nowMin }) {
+  // 共4：識別の組と終了時刻は文字列、機器の番号は正の安全な整数
+  if (!hasStringFields(body, ['role', 'student_id', 'end']) || !isPositiveId(body.device_id)) {
+    return refuse('INPUT_BODY');
+  }
+
+  // 段 1。ここで断るときは何も書かず、自動の変化も反映しない
+  const identity = validateIdentity(body);
+  if (!identity.ok) return refuse(identity.code);
+  const end = parseDateTime(body.end);
+  if (!end.ok) return refuse(end.code);
+
+  const sql = storage.sql;
+  // 段 2 以降で断っても、反映した自動の変化は残す
+  const result = storage.transactionSync(() => {
+    // 自動の変化が先（RSV-22）。ちょうど nowMin に解放された予約は、空いているかの判定を妨げない
+    applyAutoTransitions(sql, nowMin);
+    const user = findUserByIdentity(sql, identity.role, identity.studentId);
+    const device = findDevice(sql, body.device_id);
+    // 利用者の予約は引かない（件数に数えない。RSV-17）
+    const checked = checkWalkIn({
+      user,
+      device,
+      end: end.value,
+      nowMin,
+      settings: listSettings(sql),
+      deviceActive: device === null ? [] : findActiveReservationsByDevice(sql, device.id),
+    });
+    if (!checked.ok) return { code: checked.code };
+
+    // 開始はルールが返した値（= nowMin）。最初から利用中なので状態の変化の記録は書かない
+    const reservation = insertReservation(sql, {
+      deviceId: device.id,
+      userId: user.id,
+      startAt: checked.start,
+      endAt: end.value,
+      status: 'in_use',
+      walkIn: 1,
+      createdAt: now,
+    });
+    insertEvent(sql, {
+      at: now,
+      actor_kind: 'user',
+      kind: 'walk_in_started',
+      reservation_id: reservation.id,
+      device_id: reservation.device_id,
+      user_id: reservation.user_id,
+      detail: { start_at: reservation.start_at, end_at: reservation.end_at },
+    });
+    return { reservation };
   });
+  if (result.code !== undefined) return refuse(result.code);
+
+  return ok(reservationData(result.reservation));
 }

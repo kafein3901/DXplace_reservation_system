@@ -25,7 +25,7 @@ import {
 } from './devices.js';
 import { changeUser, loginUser, registerUser } from './me.js';
 import { createAdminByMaint, resetAdminPasswordByMaint } from './maint.js';
-import { createReservation } from './reservations.js';
+import { createReservation, startWalkIn } from './reservations.js';
 import { prepareSession, prepareSessionStatus, sessionStatus, startSession } from './session.js';
 import { prepareSharedInfo, setSharedInfo } from './shared-info.js';
 import { pbkdf2 } from '../lib/hash.js';
@@ -99,6 +99,7 @@ export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
     // 予約状況・確保（api.md 8.24・8.25。VIW-1〜VIW-3, RSV-2〜RSV-6）
     { method: 'GET', path: '/api/devices/{id}/day', auth: 'user', wrap: false, handler: deviceDay },
     { method: 'POST', path: '/api/reservations', auth: 'user', wrap: false, handler: createReservation },
+    { method: 'POST', path: '/api/walk-ins', auth: 'user', wrap: false, handler: startWalkIn },
   ];
 }
 

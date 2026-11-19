@@ -1,4 +1,4 @@
-// 予約の操作のルール（docs/design/detailed/rules.md 6.10〜。RSV-2〜RSV-6, TIM-6, TIM-7）
+// 予約の操作のルール（docs/design/detailed/rules.md 6.10〜。RSV-2〜RSV-6, RSV-17, RSV-20, TIM-4, TIM-6, TIM-7）
 // 時刻はミリ秒。nowMin は秒を切り捨てた現在時刻。データは自動の変化を反映した後のもの（rules.md 5.3）
 import { MINUTE_MS } from '../lib/time.js';
 import { checkDeviceActive } from './devices.js';
@@ -48,6 +48,24 @@ export function checkOverlap(deviceActive, start, end, excludeId) {
   return overlaps ? { ok: false, code: 'RULE_OVERLAP' } : OK;
 }
 
+// 段 8：機器が空いている（RSV-20）。nowMin を含む確保済みの時間帯がない（TIM-2）。
+// 自分の予約でも断る。RULE_OVERLAP より先に確かめ、「今は使えない」ことを見分けられるようにする（rules.md 6.11）
+export function checkVacant(deviceActive, nowMin) {
+  const busy = deviceActive.some(
+    (reservation) => isActive(reservation) && reservation.start_at <= nowMin && nowMin < reservation.end_at,
+  );
+  return busy ? { ok: false, code: 'RULE_DEVICE_BUSY' } : OK;
+}
+
+// 段を順に確かめ、最初に断った段の結果を返す（RSV-27）。すべて通れば null
+function firstRefusal(steps) {
+  for (const step of steps) {
+    const result = step();
+    if (!result.ok) return result;
+  }
+  return null;
+}
+
 // 確保（rules.md 6.10）。段 1 は api/ が先に確かめる。段 3 はない（新しく作るので状態がない）。
 // 開室時間は確かめない（TIM-8）
 export function checkReserve({ user, device, start, end, nowMin, settings, userActive, deviceActive }) {
@@ -61,9 +79,20 @@ export function checkReserve({ user, device, start, end, nowMin, settings, userA
     () => checkCount(userActive, settingAt(settings, 'max_count', nowMin)),
     () => checkOverlap(deviceActive, start, end, null),
   ];
-  for (const step of steps) {
-    const result = step();
-    if (!result.ok) return result;
-  }
-  return OK;
+  return firstRefusal(steps) ?? OK;
+}
+
+// 予約なしの利用（rules.md 6.11。RSV-17）。開始時刻は nowMin で、入力から受け取らない（TIM-4, RSV-24）。
+// 段 1 は api/ が先に確かめる。段 3 はない。段 5 は段 4 を通れば必ず成り立つので置かない。
+// 段 7 はない（件数に数えない。RSV-17）
+export function checkWalkIn({ user, device, end, nowMin, settings, deviceActive }) {
+  const steps = [
+    () => (user === null ? { ok: false, code: 'NOT_FOUND_USER' } : OK),
+    () => checkDeviceActive(device),
+    () => checkEndNotPast(end, nowMin),
+    () => checkLength(nowMin, end, settingAt(settings, 'max_length_minutes', nowMin)),
+    () => checkVacant(deviceActive, nowMin),
+    () => checkOverlap(deviceActive, nowMin, end, null),
+  ];
+  return firstRefusal(steps) ?? { ok: true, start: nowMin };
 }
