@@ -291,10 +291,11 @@ CREATE TABLE schema_migrations (
 | `reservations_status_start` | 自動の変化の反映（rules.md 5.2） | `status IN ('reserved', 'in_use') AND start_at <= nowMin` |
 | `reservations_device_status` | 確保・変更・予約なしの利用の重なり（RSV-3, RSV-20）、管理者の一覧（MNG-3）、機器の削除（MNG-2） | `device_id = ? AND status IN ('reserved', 'in_use')` |
 | `reservations_user_status` | 件数（RSV-4）、自分の予約（RSV-7） | `user_id = ? AND status IN ('reserved', 'in_use')` |
-| `reservations_device_end` | 予約状況の1日分（VIW-1） | `device_id = ? AND end_at > 日の始まり AND start_at < 日の終わり` |
+| `reservations_device_end` | 予約状況の1日分（VIW-1） | `device_id = ? AND end_at >= 日の始まり AND start_at < 日の終わり`（状態では絞らない。api.md 8.24） |
 | `events_at`・`events_device_at`・`events_user_at` | FUT-4 の期間・機器・利用者での絞り込み（v0.1.0 では Data Studio の SQL。logging.md 6） | ― |
 
-- **予約状況は `end_at` で引く。** `start_at` で引くと、その日より前の、その機器の履歴をすべてたどる（5年で数万件）。`end_at > 日の始まり` で引けば、その日にかかるものと先の予約だけを読む。長さの上限は変えられるので、`start_at` に下限を付けて絞る方法は使わない。
+- **予約状況は `end_at` で引く。** `start_at` で引くと、その日より前の、その機器の履歴をすべてたどる（5年で数万件）。`end_at >= 日の始まり` で引けば、その日にかかるものと先の予約だけを読む。長さの上限は変えられるので、`start_at` に下限を付けて絞る方法は使わない。
+- **`>` ではなく `>=`。** 長さ0の利用（TIM-7）を開始時刻を含む日に出すため（rules.md 6.9。2026-11-19 に予約状況の設計で直した）。終了がちょうど日の始まりの予約も引かれるが、rules の `daySlots` が落とす。
 - **部分索引（`WHERE status IN …`）は使わない。** 索引は小さくなるが、SQL の条件を索引の定義と同じ形で書かないと使われず、引き継ぐ人が気づきにくい（PRE-5）。2.2 の `devices_name_current` は一意の制約のためのもので、検索の速さのためではない。
 - **書き込みの量。** 記録1件で、表と3つの索引の4行を書く。予約1件の確保から終了まで（記録3〜5件）で20行あまり。10倍の規模（予約200件/日）でも1日5,000行ほどで、10万行（logging.md 5）に収まる。
 - 索引が実際に使われることは、台帳の層のテストで `EXPLAIN QUERY PLAN` を見て確かめる（自動の変化の反映と予約状況の2つ）。基盤では、空の表で `reservations_status_start`（自動の変化の反映）と `reservations_device_end`（予約状況）が使われることを確かめた（2026-11-19、spike）。行が増えたときの選び方は、テストで行を入れて確かめる。

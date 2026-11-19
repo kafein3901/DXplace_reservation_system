@@ -1,6 +1,6 @@
 # ルールの判定
 
-- 状態：作成中（枠組みを決定。ルールごとの節は、機能ごとの設計で足す。6.7 まで決定）
+- 状態：作成中（枠組みを決定。ルールごとの節は、機能ごとの設計で足す。6.10 まで決定）
 - 日付：2026-11-19
 - 関係する要件：RSV-1〜RSV-27, TIM-1〜TIM-7, MNG-1〜MNG-3, ADM-2, USR-3〜USR-7, SEC-3, NFR-4
 - 前提：[architecture.md](../basic/architecture.md)（手順 1〜7、`rules/` は純粋な関数）、[time-and-concurrency.md](../basic/time-and-concurrency.md)（`nowMin`、自動の変化の反映）、[domain-model.md](../basic/domain-model.md)（状態の移り方、数値の履歴）、[screens-and-api.md](../basic/screens-and-api.md) 7（コードは1つだけ返す）
@@ -130,7 +130,9 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 
 | 操作 | 要件 | 状態 |
 | --- | --- | --- |
-| 確保 | RSV-2〜RSV-6 | 未 |
+| 時刻の形式と日本時間（`lib/time.js`） | TIM-1〜TIM-4, TIM-6 | 済（6.8） |
+| 予約状況 | VIW-1, VIW-2 | 済（6.9。api.md 8.24） |
+| 確保 | RSV-2〜RSV-6 | 済（6.10。api.md 8.25） |
 | 予約なしの利用 | RSV-17, RSV-20 | 未 |
 | 時間帯の変更 | RSV-9〜RSV-12 | 未 |
 | 取消 | RSV-8 | 未 |
@@ -343,6 +345,118 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | MNG-1（`checkDeviceRename`） | `sameName` が `null` で名前が違う（`rename`）。`sameName` が自分自身（`unchanged`）。大文字と小文字だけ違う名前（`rename`） | `null`・削除済み（`NOT_FOUND_DEVICE`）、`sameName` が別の機器（`RULE_DEVICE_NAME_DUPLICATE`）。削除済みで `sameName` も別の機器なら `NOT_FOUND_DEVICE`（段 2 が先） |
 | MNG-2（`checkDeviceDelete`） | `active` が空（`cancel` は空）。予約済だけ（`cancel` がその番号の一覧） | `null`・削除済み（`NOT_FOUND_DEVICE`）、予約済と利用中が混ざっている（`RULE_DEVICE_IN_USE`）。削除済みで利用中があっても `NOT_FOUND_DEVICE` |
 
+### 6.8 時刻の形式と日本時間（`src/lib/time.js`。TIM-1〜TIM-4, TIM-6）
+
+日本時間との換算はこのファイルだけで行う（time-and-concurrency.md 1）。受け渡しの形は screens-and-api.md 6。検証の関数は 1.2 の形で返す。引数が文字列でないことはここでは扱わない（`api/` が共4 で `INPUT_BODY` にする。日はクエリなので必ず文字列か `null`）。
+
+| 関数・定数 | 手順 | `value` | コード |
+| --- | --- | --- | --- |
+| `MINUTE_MS`・`DAY_MS`・`JST_OFFSET_MS` | 60000、86400000、32400000（9時間） | ― | ― |
+| `floorMinute(ms)` | `Math.floor(ms / 60000) * 60000`（TIM-4, TIM-6。`nowMin` を作る） | ― | ― |
+| `parseDateTime(s)` | (1) `^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$` に合うか確かめる（`u` を付けないので `\d` は半角の数字だけ）。(2) `Date.UTC(年, 月 − 1, 日, 時, 分) − JST_OFFSET_MS` でミリ秒に直す。(3) その値を `formatDateTime` で戻し、`s` と同じか確かめる | 日本時間のその時刻のミリ秒（分の倍数） | `INPUT_TIME` |
+| `parseDate(s)` | `s` が `null` なら断る。`^(\d{4})-(\d{2})-(\d{2})$` に合うか確かめ、`Date.UTC(年, 月 − 1, 日) − JST_OFFSET_MS` に直し、`formatDate` で戻して `s` と同じか確かめる | 日本時間のその日の 0:00 のミリ秒 | `INPUT_DATE` |
+| `formatDateTime(ms)` | `ms + JST_OFFSET_MS` を `Date` の UTC の値として読み、`YYYY-MM-DDTHH:mm` にする（秒以下は書かない） | ― | ― |
+| `formatDate(ms)` | 同じく `YYYY-MM-DD` にする | ― | ― |
+
+- **戻して比べる。** `02-30`・`13` 月・`24:00`・`10:60` などは `Date.UTC` が繰り上げてしまうので、形だけでは断れない。戻した文字列が違えば断る。0〜99年は `Date.UTC` が1900年代に読み替えるが、これも戻すと違うので断られる。
+- **秒は書けない形にする（TIM-3）。** `10:00:00`・`10:00:00.000`・`Z` や `+09:00` の付いた値は (1) で断る。`<input type="datetime-local">` は既定の刻み（60秒）では秒を返さない。
+- **年は4桁。** 確保できるのは 9999-12-31T23:59 まで。RSV-5「どれだけ先の時間帯でも確保できる」は、この範囲で満たすとする（2026-11-19 に開発者が了承）。過去の年は形式としては受け付け、確保では段 4（`RULE_PAST`）で断る。予約状況は過去の日も見られる。
+- **日の範囲は `[parseDate(s), parseDate(s) + DAY_MS)`**（time-and-concurrency.md 1、TIM-2）。日本に夏時間はないので、どの日も24時間。
+- **`INPUT_DATE` を `INPUT_TIME` と分ける。** 予約状況の日と確保の時刻は別の入力欄で、画面の文を出し分けるため（2026-11-19 に開発者が了承）。
+
+テストの観点（部品の層）：
+
+| ID | 受け付ける | 断る |
+| --- | --- | --- |
+| TIM-3（`parseDateTime`） | `2026-11-20T10:00` が `Date.UTC(2026, 10, 20, 1, 0)` と等しい。`2026-11-20T00:00` が前の日の 15:00 UTC になる。`2028-02-29T23:59`（うるう年）。`9999-12-31T23:59` | `2026-11-20T10:00:00`、`2026-11-20 10:00`、`2026-11-20T10:00+09:00`、`2026-02-30T10:00`、`2027-02-29T10:00`、`2026-11-20T24:00`、`2026-11-20T10:60`、`2026-1-2T3:04`、全角の数字、`0099-01-01T00:00`、空。どれも `INPUT_TIME` |
+| VIW-1（`parseDate`） | `2026-11-20` が `Date.UTC(2026, 10, 19, 15, 0)` と等しい | `null`、`2026-11-31`、`2026-11-20T00:00`、`20261120`、空。どれも `INPUT_DATE` |
+| TIM-1（`formatDateTime`・`formatDate`） | `parseDateTime`・`parseDate` で直した値を戻すと元の文字列になる。UTC の 14:59 と 15:00 で日本時間の日付が変わる。秒のある `ms` を渡しても秒は出ない | ― |
+| TIM-4（`floorMinute`） | 10:00:59.999 → 10:00、10:01:00.000 → 10:01 | ― |
+
+### 6.9 予約状況（`src/rules/devices.js`・`src/rules/view.js`。VIW-1, VIW-2）
+
+| 関数 | 引数 | 段 | 確かめること・すること | 戻り値 |
+| --- | --- | --- | --- | --- |
+| `checkDeviceActive(device)` | store が番号で引いた機器の行（削除した行も含む。なければ `null`） | 2 | `null`、または `deleted_at` が `NULL` でなければ断る | `{ ok: true }` か `{ ok: false, code: 'NOT_FOUND_DEVICE' }` |
+| `daySlots(reservations, dayStart, dayEnd)` | `reservations`：store が引いた、その機器の予約（状態で絞らない。api.md 8.24）。`dayStart`・`dayEnd`：日の範囲 | ― | 下の条件に合う予約を、開始時刻の順（同じなら番号の順）に並べて返す | 予約の配列（引数の要素をそのまま並べたもの） |
+
+`daySlots` が残す予約：
+
+| 条件 | 内容 | 要件 |
+| --- | --- | --- |
+| 状態 | `reserved`・`in_use`（確保済み）、`finished`・`admin_finished`（利用があった）。`cancelled`・`no_show`・`admin_cancelled` は残さない | VIW-1 |
+| 日にかかる | 長さが正なら `start_at < dayEnd かつ end_at > dayStart`（`[開始, 終了)` と日の範囲が重なる。TIM-2）。長さが0なら `dayStart <= start_at < dayEnd`（開始時刻を含む日に出す） | VIW-1, TIM-2, TIM-7 |
+
+- **`checkDeviceActive` は、予約状況・確保・予約なしの利用で使う。** `checkDeviceRename`・`checkDeviceDelete` の段 2 も同じ判定なので、実装ではこの関数を呼んでよい。
+- **長さ0の利用（TIM-7）は開始時刻を含む日に出す（2026-11-19 に開発者が了承）。** `[s, s)` は TIM-2 の読み方ではどの日とも重ならないが、VIW-1 は利用があった予約を表示するとしている。0:00 ちょうどに始めて終えた利用は、重なりの式だけではどの日にも出ない。
+- **日をまたぐ予約は、かかるすべての日に出る。** 開始・終了は切らずにそのまま返し、画面がその日の範囲に切って描く。終了時刻がちょうど日の始まりの予約（長さが正）は、その日には出ない（TIM-2）。
+- **空きは返さない。** 空きは、確保済み（予約済・利用中）の時間帯のすき間として画面が描く（screens.md）。表示のためのもので、確保できるかの判定は確保の段 8 が行う（RSV-24。2026-11-19 に開発者が了承）。
+- **予約状況は自動の変化を反映した後のデータで作る（5.3）。** 猶予を過ぎた予約済はすでに無断不使用で、出ない。終了時刻を過ぎた利用中はすでに終了で、利用があった時間帯として出る。
+- **学籍番号を返さないのは `api/` の応答の作り方で守る**（api.md 8.24）。`daySlots` は予約を選ぶだけで、項目を選ばない。
+
+テストの観点（ルールの層）：
+
+| ID | 受け付ける・残す | 断る・残さない |
+| --- | --- | --- |
+| VIW-1（`checkDeviceActive`） | 削除していない機器 | `null`、削除した機器（`NOT_FOUND_DEVICE`） |
+| VIW-1（`daySlots`、状態） | 予約済・利用中・終了・管理者による終了 | 取消・無断不使用・管理者による取消 |
+| VIW-1（`daySlots`、範囲） | 日の中に収まる。前の日の 23:00〜その日の 1:00（日をまたぐ）。その日の 23:00〜次の日の 1:00。前の日から次の日まで。開始がちょうど日の始まり。長さ0で開始が日の始まりちょうど・23:59 | 終了がちょうど日の始まり（長さが正）。開始がちょうど次の日の始まり。長さ0で開始が次の日の始まり |
+| VIW-1（`daySlots`、並び） | 開始時刻の順。同じ開始時刻なら番号の順 | ― |
+
+### 6.10 確保（`src/rules/reservations.js`。RSV-2〜RSV-6, TIM-6, TIM-7）
+
+要件ごとの関数（2）。ここで作るものは、予約なしの利用・時間帯の変更・利用開始（②〜⑤）でも使う。時刻はミリ秒、`nowMin` は 1.3 のとおり。
+
+| 関数 | 段 | 確かめること | コード |
+| --- | --- | --- | --- |
+| `checkStartNotPast(start, nowMin)` | 4 | `start >= nowMin`（TIM-6「開始時刻は現在時刻以降」） | `RULE_PAST` |
+| `checkEndNotPast(end, nowMin)` | 4 | `end > nowMin`（TIM-6「終了時刻は現在時刻より後」） | `RULE_PAST` |
+| `checkTimeOrder(start, end)` | 5 | `end > start`（TIM-7, RSV-5） | `RULE_TIME_ORDER` |
+| `checkLength(start, end, limitMinutes)` | 6 | `end − start <= limitMinutes × MINUTE_MS`（RSV-6） | `RULE_LENGTH` |
+| `checkCount(userActive, limit)` | 7 | `userActive` のうち、状態が `reserved`・`in_use` で `walk_in` が 0 のものの件数が `limit` 未満（RSV-4, RSV-5） | `RULE_COUNT` |
+| `checkOverlap(deviceActive, start, end, excludeId)` | 8 | `deviceActive` のうち、状態が `reserved`・`in_use` で、番号が `excludeId` でなく、`r.start_at < end かつ start < r.end_at` のものが1件もない（RSV-1, RSV-3, TIM-2）。`excludeId` は確保では `null` | `RULE_OVERLAP` |
+
+- 受け付けるときは `{ ok: true }` だけを返す。
+- **状態は rules でも確かめる。** store は予約済・利用中だけを引くが（3 の「多め」に返してよい決まり）、数え方と重なりの対象（RSV-1）は rules が決める。
+- **重なりの式は長さが正の時間帯どうしのためのもの。** 長さ0になるのは利用終了の後（TIM-7）で、そのとき状態は終了なので重なりの対象に入らない。
+- **`RULE_PAST` は開始と終了で分けない（2026-11-19 に開発者が了承）。** どちらの欄が過去かは、画面が入力と応答の `now`（api.md 8.24）からわかる。
+
+操作ごとの関数：
+
+| 関数 | 引数 |
+| --- | --- |
+| `checkReserve({ user, device, start, end, nowMin, settings, userActive, deviceActive })` | `user`：識別の組で引いた利用者（api.md 8.16。なければ `null`）。`device`：番号で引いた機器（削除した行も含む。なければ `null`）。`start`・`end`：6.8 で直したミリ秒。`settings`：数値の履歴の全件（3.1）。`userActive`：その利用者の予約済・利用中の全件（全機器）。`deviceActive`：その機器の予約済・利用中の全件 |
+
+| 段 | 確かめること | コード |
+| --- | --- | --- |
+| 1 | （`api/` が先に確かめる）`validateRole` → `validateStudentId` → `parseDateTime(start)` → `parseDateTime(end)` | `INPUT_ROLE`・`INPUT_STUDENT_ID`・`INPUT_TIME` |
+| 2 | `user` が `null` でない → `checkDeviceActive(device)` | `NOT_FOUND_USER` → `NOT_FOUND_DEVICE` |
+| 3 | なし（新しく作るので状態がない） | ― |
+| 4 | `checkStartNotPast` → `checkEndNotPast` | `RULE_PAST` |
+| 5 | `checkTimeOrder` | `RULE_TIME_ORDER` |
+| 6 | `checkLength(start, end, settingAt(settings, 'max_length_minutes', nowMin))` | `RULE_LENGTH` |
+| 7 | `checkCount(userActive, settingAt(settings, 'max_count', nowMin))` | `RULE_COUNT` |
+| 8 | `checkOverlap(deviceActive, start, end, null)` | `RULE_OVERLAP` |
+
+- 受け付けるときは `{ ok: true }` を返す（1.1 の「ルールで決まる値」はない。開始・終了は入力どおり）。
+- **件数は全機器で数える（RSV-4「1人が同時に確保できる」）。** 重なりはその機器だけ（RSV-3「この制限は機器ごと」）。同じ人の予約どうしの重なりも断る。
+- **件数に予約なしの利用で始めたものを数えない（RSV-5, RSV-17）。** `walk_in` は作るときに決まり変わらない（schema.md 2.3）ので、時間帯を変えた後も数えない。
+- **件数の上限と長さの上限は `nowMin` の時点の値（3.1）。**
+- **開始時刻がちょうど `nowMin` の確保は受け付ける。** すぐに予約済になり、猶予はその開始時刻から数える（5.1）。
+- **開室時間は確かめない（TIM-8）。** 深夜・休日も確保できる。
+
+テストの観点（ルールの層）。時刻は例として `nowMin` = 10:00、上限は初期値（3件、1440分）：
+
+| ID | 受け付ける | 断る |
+| --- | --- | --- |
+| TIM-6（`checkStartNotPast`・`checkEndNotPast`） | 開始 10:00（ちょうど `nowMin`）。終了 10:01 | 開始 9:59。終了 10:00（ちょうど `nowMin`）。どちらも `RULE_PAST` |
+| TIM-7, RSV-5（`checkTimeOrder`） | 終了が開始の1分後 | 終了 = 開始、終了 < 開始（`RULE_TIME_ORDER`） |
+| RSV-6（`checkLength`） | 1440分ちょうど | 1441分（`RULE_LENGTH`）。上限を 60 に変えた履歴（`effective_at` が `nowMin` ちょうど）では61分を断る（RSV-26 と同じく「以下」で引く） |
+| RSV-4（`checkCount`） | 予約済・利用中が2件。予約なしの利用で始めた利用中が3件あっても0件と数える。取消・無断不使用・終了などは数えない。別の機器の予約も合わせて数える | 予約済・利用中が3件（`RULE_COUNT`）。上限を 1 に変えた履歴では1件で断る |
+| RSV-3（`checkOverlap`） | 既存 [10:00, 11:00) に対して [11:00, 12:00)、[9:00, 10:00)。既存が取消・無断不使用・終了・管理者による取消・管理者による終了なら同じ時間帯でも受け付ける。`excludeId` の予約は除く | [10:59, 11:30)、[9:00, 10:01)、[10:15, 10:45)（含まれる）、[9:00, 12:00)（含む）、同じ時間帯。既存が利用中でも断る。どれも `RULE_OVERLAP` |
+| RSV-2（`checkReserve`） | すべての段を通る入力 | `user` が `null`（`NOT_FOUND_USER`）。`device` が `null`・削除済み（`NOT_FOUND_DEVICE`） |
+| RSV-27（`checkReserve` の順） | ― | `user` が `null` で機器も削除済み → `NOT_FOUND_USER`。過去かつ長さ超え → `RULE_PAST`。終了 = 開始かつ件数超え → `RULE_TIME_ORDER`。長さ超えかつ件数超え → `RULE_LENGTH`。件数超えかつ重なり → `RULE_COUNT`。機器が削除済みかつ過去 → `NOT_FOUND_DEVICE` |
+
 ## 7. 共通のテストの観点
 
 | 対象 | 観点 |
@@ -367,6 +481,12 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 機器の名前の上限を50などにする | 名前（USR-5）と別の値になり、画面の幅も考え直すことになる（6.6） |
 | 機器の名前は前後の空白を除くことと長さだけを確かめる | 改行や制御文字が選択肢・記録に入り、表示が崩れる（6.6） |
 | 削除で取り消す予約を `api/` が選ぶ | MNG-2 の判定が `api/` に入る（6.7） |
+| 時刻の形式を正規表現だけで確かめる | `02-30` や `24:00` を `Date.UTC` が繰り上げて受け付けてしまう（6.8） |
+| 日の誤りも `INPUT_TIME` にまとめる | 予約状況の日と確保の時刻は別の欄で、画面の文を出し分けられない（6.8） |
+| 予約状況で、表示する状態を store の SQL で絞る | VIW-1 の判定が SQL に入り、DB なしで確かめられない（3、6.9） |
+| 長さ0の利用を重なりの式どおりどの日にも出さない | 0:00 ちょうどに始めて終えた利用が表示されず、VIW-1「利用があった予約も表示する」に反する（6.9） |
+| 台帳が空きの時間帯も計算して返す | 表示のためだけの値で、確保できるかは段 8 で決まる。画面がすき間から描けば足りる（6.9） |
+| `RULE_PAST` を開始と終了で分ける | 画面は入力と `now` からどちらの欄かわかる。コードが増えるだけ（6.10） |
 
 ## 要件の読み方（確認済み）
 
