@@ -79,3 +79,17 @@ img {
   flex: 1 1 10rem;
   overflow-wrap: anywhere;
 }
+
+/* 予約状況の一覧（screens.md 3.4。VIW-1）。確保済みと利用があった時間帯を色で分ける */
+.slot-active {
+  background: #fff3e0;
+}
+
+.slot-used {
+  color: #555;
+  background: #f0f0f0;
+}
+
+.slot-free {
+  color: #1b5e20;
+}

@@ -1,6 +1,6 @@
 // 機器の追加・名前の変更・削除（rules.md 6.7）
 import { describe, expect, test } from 'vitest';
-import { checkDeviceCreate, checkDeviceDelete, checkDeviceRename } from '../../src/rules/devices.js';
+import { checkDeviceActive, checkDeviceCreate, checkDeviceDelete, checkDeviceRename } from '../../src/rules/devices.js';
 
 const pc1 = { id: 1, name: 'PC1', created_at: 0, deleted_at: null };
 const pc2 = { id: 2, name: 'PC2', created_at: 0, deleted_at: null };
@@ -73,5 +73,19 @@ describe('MNG-2 機器の削除（checkDeviceDelete）', () => {
 
   test('MNG-2 削除済みで利用中があっても NOT_FOUND_DEVICE（段 2 が先）', () => {
     expect(checkDeviceDelete(deleted, [reservation(2, 'in_use')])).toEqual({ ok: false, code: 'NOT_FOUND_DEVICE' });
+  });
+});
+
+describe('VIW-1 機器があり削除されていないか（checkDeviceActive）', () => {
+  test('VIW-1 削除していない機器は受け付ける', () => {
+    expect(checkDeviceActive(pc1)).toEqual({ ok: true });
+  });
+
+  test('VIW-1 null は NOT_FOUND_DEVICE', () => {
+    expect(checkDeviceActive(null)).toEqual({ ok: false, code: 'NOT_FOUND_DEVICE' });
+  });
+
+  test('VIW-1 削除した機器は NOT_FOUND_DEVICE', () => {
+    expect(checkDeviceActive(deleted)).toEqual({ ok: false, code: 'NOT_FOUND_DEVICE' });
   });
 });

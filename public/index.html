@@ -22,16 +22,32 @@
     <p class="message"></p>
   </section>
 
-  <!-- 予約状況（screens.md 3.4。VIW-1）。機器の選択と日まで。「最新にする」と時間帯の一覧は予約状況の実装で足す -->
+  <!-- 予約状況（screens.md 3.4。VIW-1〜VIW-3） -->
   <section id="screen-day" hidden>
     <h1>予約状況</h1>
     <p class="message"></p>
     <label>機器 <select id="day-device"></select></label>
     <label>日 <input type="date" id="day-date"></label>
+    <button type="button" id="day-refresh">最新にする</button>
     <p id="day-empty" hidden>機器がありません。</p>
-    <!-- 確保・予約なしの利用は予約の操作の実装で動かす。それまでは押せない -->
+    <p id="day-none" hidden>この日の予約はありません。</p>
+    <ul id="day-slots" class="list"></ul>
     <button type="button" id="day-reserve" disabled>予約する</button>
+    <!-- 予約なしの利用は予約の操作②の実装で動かす。それまでは押せない -->
     <button type="button" id="day-walk-in" disabled>予約なしで使い始める</button>
+  </section>
+
+  <!-- 確保（screens.md 3.5。RSV-2〜RSV-6）。利用者が要る画面。機器は予約状況で選んだもの -->
+  <section id="screen-reserve" hidden>
+    <h1>予約する</h1>
+    <p class="message"></p>
+    <form id="reserve-form">
+      <p>機器：<span id="reserve-device"></span></p>
+      <label>開始時刻 <input type="datetime-local" id="reserve-start"></label>
+      <label>終了時刻 <input type="datetime-local" id="reserve-end"></label>
+      <button type="submit">予約する</button>
+      <button type="button" id="reserve-back">戻る</button>
+    </form>
   </section>
 
   <!-- 自分の予約（screens.md 3.7。RSV-7）。中身は予約の操作の実装で足す。利用者が要る画面 -->

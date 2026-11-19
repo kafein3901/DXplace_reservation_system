@@ -1,6 +1,7 @@
 // 利用者の画面の動き（screens.md 2・3）
 import { callApi } from './api.js';
 import { messageFor } from './messages.js';
+import { addMinutes, dayRange, displayInDay } from './time.js';
 
 const bar = document.getElementById('bar');
 const userLabel = document.getElementById('user-label');
@@ -12,8 +13,8 @@ let user = null;
 // 利用者が要る画面を出そうとして利用者がいなかったときの行き先（screens.md 3.1）
 let destination = null;
 
-// 利用者が要る画面。確保・予約なしの利用は予約の操作の実装で足す
-const NEEDS_USER = new Set(['mine', 'change']);
+// 利用者が要る画面。予約なしの利用は予約の操作②の実装で足す
+const NEEDS_USER = new Set(['reserve', 'mine', 'change']);
 
 // ログインと登録の画面。行き来しても覚えた行き先は消さない（screens.md 3.1）
 const USER_ENTRY = new Set(['login', 'register']);
@@ -27,6 +28,8 @@ function show(name) {
   setMessage(name, '', null);
   // 名前・期生の変更は出すたびに欄を利用者の値で入れ直す（screens.md 3.3.4）
   if (name === 'change' && user !== null) fillChangeForm();
+  // 確保は出すたびに機器の名前と時刻の初期値を入れ直す（screens.md 3.5）
+  if (name === 'reserve') fillReserveForm();
   // 予約状況は出すたびに取り直す（screens.md 3.1）。応答は後で届くので、呼んだ側がこの後に出す文は消えない
   if (name === 'day') loadDayDevices();
 }
@@ -91,11 +94,14 @@ for (const button of bar.querySelectorAll('[data-screen]')) {
   button.addEventListener('click', () => open(button.dataset.screen));
 }
 
-// ---- 予約状況（screens.md 3.4 の 1。VIW-1） ----
+// ---- 予約状況（screens.md 3.4。VIW-1〜VIW-3） ----
 
 const dayDeviceField = document.getElementById('day-device');
 const dayDateField = document.getElementById('day-date');
 const dayEmpty = document.getElementById('day-empty');
+const dayNone = document.getElementById('day-none');
+const daySlotsList = document.getElementById('day-slots');
+const dayReserveButton = document.getElementById('day-reserve');
 
 // 直近の応答の now（YYYY-MM-DDTHH:mm、日本時間）。初期値はこれから作り、端末の時計は読まない（screens.md 2.8・3.1）
 let now = null;
@@ -103,7 +109,7 @@ let now = null;
 // 選んでいる機器 { id, name }。なければ null（screens.md 3.1）。番号は数で持つ
 let selectedDevice = null;
 
-// 機器の選択肢を作り直し、now を持つ。日の欄が空なら now の日を入れる
+// 開いたときの 1：機器の選択肢を作り直し、now を持つ。日の欄が空なら now の日を入れる。機器があれば 2 に進む
 async function loadDayDevices() {
   const result = await callApi('GET', '/api/devices');
   if (!result.ok) return showError(result.code);
@@ -124,15 +130,168 @@ async function loadDayDevices() {
   if (selectedDevice !== null) dayDeviceField.value = String(selectedDevice.id);
   dayEmpty.hidden = devices.length > 0;
   dayDeviceField.disabled = devices.length === 0;
+  dayReserveButton.disabled = devices.length === 0;
 
   if (dayDateField.value === '') dayDateField.value = now.slice(0, 10);
+
+  if (selectedDevice === null) {
+    // 機器がなければ 2 に進まない
+    daySlotsList.replaceChildren();
+    dayNone.hidden = true;
+    return;
+  }
+  await loadDay();
 }
 
+// 開いたときの 2：選んでいる機器と日の予約状況を取り直して描く（api.md 8.24）。.message は消さない（screens.md 3.1）
+async function loadDay() {
+  if (selectedDevice === null) return;
+  const date = dayDateField.value;
+  if (date === '') return setMessage('day', '日を選んでください。', 'error');
+  const result = await callApi('GET', `/api/devices/${selectedDevice.id}/day?date=${encodeURIComponent(date)}`);
+  if (!result.ok) {
+    showError(result.code);
+    // 機器が削除されていたら、文を出したうえで選択肢から読み直す（screens.md 2.8・3.4）
+    if (result.code === 'NOT_FOUND_DEVICE') await loadDayDevices();
+    return;
+  }
+  now = result.data.now;
+  renderDay(result.data.date, result.data.slots);
+}
+
+const STATUS_LABELS = {
+  reserved: '予約済',
+  in_use: '利用中',
+  finished: '終了',
+  admin_finished: '管理者による終了',
+};
+
+// 確保済み（予約済・利用中）か。利用があった時間帯（終了・管理者による終了）と色を分ける（VIW-1）
+const isActive = (slot) => slot.status === 'reserved' || slot.status === 'in_use';
+
+// YYYY-MM-DDTHH:mm は同じ形どうしなら文字列の順と時刻の順が一致するので、文字列で比べる（screens.md 3.4）
+const byStart = (a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0);
+
+// 空きの時間帯（screens.md 3.4）：[日 00:00, 翌日 00:00) から確保済みの時間帯を除いた残り。
+// 始まりは now より前にしない（今日なら今より前、過去の日には出さない。TIM-6）
+function freeRanges(date, slots) {
+  const day = dayRange(date);
+  let cursor = now > day.start ? now : day.start;
+  const free = [];
+  for (const slot of slots.filter(isActive).sort(byStart)) {
+    if (cursor >= day.end) break;
+    if (slot.start > cursor) free.push({ start: cursor, end: slot.start < day.end ? slot.start : day.end });
+    if (slot.end > cursor) cursor = slot.end;
+  }
+  if (cursor < day.end) free.push({ start: cursor, end: day.end });
+  return free;
+}
+
+function renderDay(date, slots) {
+  // 開始時刻の順。同じ開始時刻なら台帳が返した予約を先にする（sort は安定）
+  const lines = [
+    ...slots.map((slot) => ({ slot, start: slot.start, end: slot.end })),
+    ...freeRanges(date, slots),
+  ].sort(byStart);
+
+  daySlotsList.replaceChildren(
+    ...lines.map((line) => {
+      const item = document.createElement('li');
+      // 日をまたぐ時間帯は切らず、選んだ日と違う日の端だけ日付を付ける
+      const time = `${displayInDay(line.start, date)}–${displayInDay(line.end, date)}`;
+      if (line.slot === undefined) {
+        item.className = 'slot-free';
+        item.textContent = `${time} 空き`;
+        return item;
+      }
+      const { slot } = line;
+      item.className = isActive(slot) ? 'slot-active' : 'slot-used';
+      // 名前は textContent で入れる（SEC-1）。教員は名前だけ。学籍番号は応答にない（VIW-2）
+      const who = slot.cohort === null ? slot.name : `${slot.name}（${slot.cohort}期）`;
+      item.textContent = `${time} ${STATUS_LABELS[slot.status]} ${who}`;
+      return item;
+    }),
+  );
+  dayNone.hidden = lines.length > 0;
+}
+
+// 機器・日を変えたとき、「最新にする」を押したときは 2 だけを行う（screens.md 3.4）
 dayDeviceField.addEventListener('change', () => {
   const id = Number(dayDeviceField.value);
   const option = dayDeviceField.selectedOptions[0];
   selectedDevice = option === undefined ? null : { id, name: option.textContent };
+  setMessage('day', '', null);
+  loadDay();
 });
+
+dayDateField.addEventListener('change', () => {
+  setMessage('day', '', null);
+  loadDay();
+});
+
+document.getElementById('day-refresh').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  setMessage('day', '', null);
+  button.disabled = true;
+  try {
+    await loadDay();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+// 「予約する」：確保を出す。利用者がなければ行き先を覚えてログインへ（screens.md 3.1・3.4）
+dayReserveButton.addEventListener('click', () => open('reserve'));
+
+// ---- 確保（screens.md 3.5。RSV-2〜RSV-6） ----
+
+const reserveForm = document.getElementById('reserve-form');
+const reserveDeviceLabel = document.getElementById('reserve-device');
+const reserveStartField = document.getElementById('reserve-start');
+const reserveEndField = document.getElementById('reserve-end');
+
+// 初期値：開始は「選んでいる日＋now の時刻」（今日なら now そのもの）、終了はその60分後
+function fillReserveForm() {
+  reserveDeviceLabel.textContent = selectedDevice === null ? '' : selectedDevice.name; // SEC-1
+  if (now === null) return;
+  const date = dayDateField.value === '' ? now.slice(0, 10) : dayDateField.value;
+  const start = `${date}T${now.slice(11, 16)}`;
+  reserveStartField.value = start;
+  reserveEndField.value = addMinutes(start, 60);
+}
+
+reserveForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  setMessage('reserve', '', null);
+  if (user === null) return showError('NOT_FOUND_USER');
+  if (selectedDevice === null) return show('day');
+  const start = reserveStartField.value;
+  const end = reserveEndField.value;
+  if (start === '' || end === '') return setMessage('reserve', '開始時刻と終了時刻を入れてください。', 'error');
+
+  // 欄の値（YYYY-MM-DDTHH:mm）をそのまま送る。判定は台帳が行う（RSV-24）
+  const result = await submitWith(reserveForm, '/api/reservations', {
+    role: user.role,
+    student_id: user.student_id,
+    device_id: selectedDevice.id,
+    start,
+    end,
+  });
+  if (!result.ok) {
+    // 機器が削除されていたら予約状況に戻って文を出す（機器の選択肢が読み直される）
+    if (result.code === 'NOT_FOUND_DEVICE') {
+      show('day');
+      return setMessage('day', messageFor(result.code), 'error');
+    }
+    // ほかのコードはこの画面に文を出し、欄を残す
+    return showError(result.code);
+  }
+  // 成功したら予約状況を出す（出すときに取り直す。VIW-3）
+  show('day');
+  setMessage('day', '予約しました。', 'success');
+});
+
+document.getElementById('reserve-back').addEventListener('click', () => show('day'));
 
 // ---- ログイン・登録・名前と期生の変更（screens.md 3.3。USR-3〜USR-7） ----
 
