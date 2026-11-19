@@ -143,6 +143,7 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 数値の変更 | RSV-25 | 未 |
 | 管理者の入力の検証（`lib/`） | ADM-2, USR-5, SEC-3 | 済（6.2） |
 | 利用者の入力の検証（`lib/`） | USR-4〜USR-6 | 一部（名前 USR-5 と、全角・大小のそろえ方は 6.2 で決めた。学籍番号・期生は未） |
+| 管理者の認証・管理者の証明・試行の上限 | ADM-2, SEC-3 | 済（6.3。試行の上限は利用の開始・保守用の API も同じ関数を使う） |
 
 ### 6.1 管理者の作成・パスワードの設定し直し（`src/rules/admins.js`。ADM-2）
 
@@ -189,6 +190,42 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | USR-5（`validateName`） | 1文字・30文字（前後の空白を除いて）、前後の空白・全角の空白を除いた値を返す、絵文字1つを1文字と数える | 空、空白だけ、31文字、途中・末尾の改行（`\n`・`\r`）、タブ、U+0000、U+2028 |
 | SEC-3（`validatePassword`） | 15文字・128文字、記号を含む | 14文字・129文字、空白を含む、全角の文字、ひらがな |
 | SEC-3（`clientKey`） | IPv4 はそのまま。同じ /64 の IPv6 の2つのアドレス（省略した書き方と省略しない書き方）が同じ値になる。違う /64 は違う値。値がなければ `unknown` | ― |
+
+### 6.3 管理者の認証・管理者の証明・試行の上限（`src/rules/auth.js`。ADM-2, SEC-3）
+
+認証の判定も、ほかのルールと同じく純粋な関数にし、`api/` は判定しない（architecture.md 4）。ハッシュの計算とバイト列の比べ方は `lib/` が行い、rules には結果（真偽）だけを渡す。
+
+| 関数 | 引数 | 確かめること | 断るときの戻り値 |
+| --- | --- | --- | --- |
+| `checkAttemptLimit(row, limit)` | store が `auth_failures` から、入口・`clientKey`・その10分の区切りで引いた行（なければ `null`）と、入口ごとの上限（共有された情報 200、管理者の認証 10、保守用 5。design-values.md） | `null`、または `failures` が `limit` 未満なら受け付ける | `{ ok: false, code: 'LIMIT_ATTEMPTS' }` |
+| `checkAdminLogin(admin, passwordMatches)` | store が、そろえた後の ID で引いた管理者の行（削除した行も含む。ID の形式が合わないときや、ないときは `null`）と、PBKDF2 の結果が保存してあるハッシュと等しかったか | (1) `admin` が `null`、または `deleted_at` が `NULL` でなければ断る。(2) `passwordMatches` が偽なら断る | (1) `{ ok: false, code: 'AUTH_ADMIN_FAILED', failure: 'unknown_id' }`、(2) 同じコードで `failure: 'wrong_password'` |
+| `checkAdminSession(session, admin)` | store が Cookie の値のハッシュで引いた `admin_sessions` の行（なければ `null`）と、その行の `admin_id` の管理者の行（`session` が `null` なら `null`） | (1) `session` が `null` なら断る。(2) `ended_at` が入っている、`admin.deleted_at` が入っている、`session.password_version` が `admin.password_version` と違う、のどれかなら断る | (1) `{ ok: false, code: 'AUTH_REQUIRED' }`、(2) `{ ok: false, code: 'AUTH_REVOKED' }` |
+
+- 受け付けるときは `{ ok: true }` だけを返す。
+- **`failure` は記録のためだけに返す。** 応答には `code` だけを入れ、`unknown_id` と `wrong_password` を区別しない（auth.md 8）。`api/` は `failure` を見て、`auth_failures` の `unknown_id_failures` か `wrong_password_failures` のどちらを増やすかを決める（判定ではなく、返された値をそのまま書く）。
+- **削除した管理者は「ID がない」に数える。** 認証できないアカウントで、パスワードが合っていても受け付けないため。(1) を (2) より先に確かめるので、削除した管理者に正しいパスワードを送っても `unknown_id` になる。
+- **`checkAttemptLimit` は3つの入口で同じ関数を使う。** 保守用の API（api.md 6.1 の 2）もこの関数で確かめる。
+- **`checkAdminSession` で `admin` が `null` になることはない**（`admin_sessions.admin_id` に `REFERENCES` があり、管理者の行は消さない）。`null` が渡されたらバグとして例外を投げる（1.1）。
+
+`lib/` に置く部品：
+
+| 関数 | 置き場所 | 内容 |
+| --- | --- | --- |
+| `windowStart(now)` | `lib/time.js` | `Math.floor(now / 600000) * 600000`（10分の区切りの始まり。auth.md 7） |
+| `readCookie(header, name)` | `lib/cookie.js` | `Cookie` ヘッダから名前の値を取り出す。ヘッダがない、名前がないときは `null` |
+| `isTokenFormat(s)` | `lib/cookie.js` | 証明の値の形（43文字の base64url。`A-Z`・`a-z`・`0-9`・`-`・`_`）か。形が違う値はハッシュを求めず、Cookie がないものとして扱う |
+| `adminCookie(value)`・`clearAdminCookie()` | `lib/cookie.js` | `Set-Cookie` の値を作る。`__Host-dxp_admin=値; Max-Age=34560000; Path=/; Secure; HttpOnly; SameSite=Strict`（400日。auth.md 3）。消すときは値を空にして `Max-Age=0` |
+| `equalBytes(a, b)` | `lib/hash.js` | 同じ長さのバイト列を `crypto.subtle.timingSafeEqual` で比べる。長さが違えば偽（PBKDF2 の結果は常に32バイトなので、ふつうは起きない） |
+
+テストの観点（ルールの層・部品の層）：
+
+| ID | 受け付ける | 断る |
+| --- | --- | --- |
+| SEC-3（`checkAttemptLimit`） | `null`、`failures` が上限 − 1 | `failures` が上限ちょうど（`LIMIT_ATTEMPTS`） |
+| ADM-2（`checkAdminLogin`） | 削除していない管理者でパスワードが等しい | `null`（`unknown_id`）、削除した管理者（パスワードが等しくても `unknown_id`）、パスワードが違う（`wrong_password`）。どれも `code` は `AUTH_ADMIN_FAILED` |
+| ADM-2（`checkAdminSession`） | 解いていない・削除されていない・版が同じ | `null`（`AUTH_REQUIRED`）、`ended_at` がある、管理者が削除されている、版が違う（どれも `AUTH_REVOKED`） |
+| SEC-3（`windowStart`） | 10:09:59.999 と 10:00 が同じ区切り、10:10 は次の区切り（TIM-2 と同じく始まりを含む） | ― |
+| ADM-2（`readCookie`・`isTokenFormat`） | ほかの Cookie と並んでいても取り出せる。43文字の base64url | 42文字・44文字、`=` や `+` を含む値、ヘッダがない |
 
 ## 7. 共通のテストの観点
 

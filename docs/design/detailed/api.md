@@ -1,8 +1,8 @@
 # API
 
-- 状態：作成中（共通の部分と保守用の API を決定。残りの API の入出力は、機能ごとの設計で足す）
+- 状態：作成中（共通の部分、保守用の API、管理者の認証を決定。残りの API の入出力は、機能ごとの設計で足す）
 - 日付：2026-11-19
-- 関係する要件：USR-1, USR-2, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, TIM-1, NFR-4, PRE-5, FUT-1
+- 関係する要件：USR-1, USR-2, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
 - 前提：[architecture.md](../basic/architecture.md) 1, 3, 4（Worker は渡すだけ、手順 1〜7）、[screens-and-api.md](../basic/screens-and-api.md) 4〜7（API の一覧、応答の形）、[auth.md](../basic/auth.md) 1, 3, 6, 7（入口の種類、Cookie と Origin、保守用の鍵、試行の制限）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 2, 4（時刻を取る位置、`blockConcurrencyWhile`）、[error-codes.md](error-codes.md)、[schema.md](schema.md) 5（版の適用）
 
 ここでは、すべての API に共通の受け渡しの形、Worker と台帳の受け渡し、デプロイの直後の版の食い違いへの備え、保守用の API の `curl` 手順の形を決める。API ごとの入出力と返しうるコードは、機能ごとの設計で 8 に足す。
@@ -125,7 +125,7 @@ API を変えるときの決まり：
 | 順 | 確かめること | 断るとき | 失敗として数えるか |
 | --- | --- | --- | --- |
 | 1 | `MAINT_KEY` が設定されていて、43文字以上か（design-values.md） | `AUTH_MAINT_DISABLED` | 数えない（表に何も書かない） |
-| 2 | 試行の上限：`auth_failures` の、`entry = 'maint'`・`client = clientKey(CF-Connecting-IP)`（rules.md 6.2）・その10分の区切りの行の `failures` が5未満か | `LIMIT_ATTEMPTS` | 数えない（上限後は書かない。logging.md 4） |
+| 2 | 試行の上限：`auth_failures` の、`entry = 'maint'`・`client = clientKey(CF-Connecting-IP)`（rules.md 6.2）・その10分の区切りの行の `failures` が5未満か（`checkAttemptLimit`。rules.md 6.3） | `LIMIT_ATTEMPTS` | 数えない（上限後は書かない。logging.md 4） |
 | 3 | ヘッダの値があり、その SHA-256 と `MAINT_KEY` の SHA-256 が `crypto.subtle.timingSafeEqual` で等しいか | `AUTH_MAINT_KEY_INVALID` | 数える |
 
 - **両方の SHA-256 を比べる。** `timingSafeEqual` は同じ長さのバイト列しか比べられない。ハッシュにすれば長さがそろい、比べる時間から鍵の長さもわからない。鍵は256ビットのランダムな値なので、速い SHA-256 で足りる（auth.md 4 の共有された情報と同じ考え方）。
@@ -208,6 +208,7 @@ API を変えるときの決まり：
 | API | 機能 | 状態 |
 | --- | --- | --- |
 | `POST /api/maint/admins`、`POST /api/maint/admins/{id}/reset-password` | 保守用の API（ADM-2） | 済（8.1〜8.3） |
+| `POST /api/admin/login`、`GET /api/admin/me`、`POST /api/admin/logout`、管理者の API に共通の証明の確かめ方 | 管理者の認証（ADM-2） | 済（8.4〜8.8） |
 | screens-and-api.md 5 の一覧の残りすべて | rules.md 6 の表の各機能と、利用の開始・管理者の認証・利用者の入力・予約状況 | 未 |
 
 ### 8.1 `POST /api/maint/admins`（管理者の作成。ADM-2）
@@ -306,6 +307,128 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | API | 先頭に BOM の付いた UTF-8 の本文を読める。断る要求では `admins`・`events` に何も書かれていない |
 | API | PBKDF2 は、断る要求では呼ばれない（テストで計算の関数を差し替えて数える） |
 
+### 8.4 `POST /api/admin/login`（管理者の認証。ADM-2, SEC-3）
+
+管理者が ID とパスワードで認証し、管理者の認証した状態（証明）を受け取る。経路の表（3.3）では、認証の種類は「誰でも」、包むかは「包む」。確かめる順は 4 の例外（上限 → 本文 → ID とパスワード）。
+
+要求の本文：
+
+| 項目 | 型 | 省略 | 内容 |
+| --- | --- | --- | --- |
+| `login_id` | 文字列 | できない | 管理者の ID。全角・大文字で送っても、そろえて引く（rules.md 6.2） |
+| `password` | 文字列 | できない | パスワード。そろえずに使う |
+
+処理（すべて `blockConcurrencyWhile` の中。例外は中で受け止めて 500 にする）：
+
+1. 準備：本文を読む。新しい証明の値（ランダムな32バイトを base64url にした43文字）とその SHA-256 を作る。ダミーのソルト（ランダムな16バイト）を作る。
+2. `clock()` で現在時刻を取る。
+3. 同期で確かめる。
+   - `Origin`（共2）。
+   - 試行の上限：`auth_failures` の、`entry = 'admin_login'`・`client = clientKey(CF-Connecting-IP)`・`windowStart(now)` の行を引き、`checkAttemptLimit(行, 10)`（rules.md 6.3）。
+   - 本文（共4）：JSON のオブジェクトで、`login_id`・`password` がどちらも文字列であること。
+   - `validateLoginId(login_id)`。通れば、store がそろえた ID で管理者の行を引く（削除した行も含む）。通らなければ管理者は `null` とする。`INPUT_LOGIN_ID` は返さない。
+4. PBKDF2-HMAC-SHA256 を必ず1回計算する（`await`）。入力は `password` の UTF-8 のバイト列。使える管理者（行があり、削除していない）がいればその行の `password_salt`・`password_iterations` で計算する。いなければダミーのソルトと設定値の反復回数（100,000回）で計算する。
+5. 使える管理者がいれば `equalBytes(結果, password_hash)` を求め、いなければ偽とする。`checkAdminLogin(管理者, 結果)` で判定する（rules.md 6.3）。
+6. `transactionSync` の中で書く。
+   - 成功のとき：自動の変化を反映する（rules.md 5）。`admin_sessions` に1行足す（`token_hash` は 1 のハッシュ、`admin_id`、`password_version` はその管理者の現在の値、`created_at` は 2 の時刻、`ended_at` は `NULL`）。記録を書く。
+   - 失敗のとき：失敗を数える（6.1 と同じ書き方）。あわせて、`failure` が `unknown_id` なら `unknown_id_failures` を、`wrong_password` なら `wrong_password_failures` を1増やす。`last_login_id` には、3 で形式が通ればそろえた ID を、通らなければ `'(invalid)'` を書く。自動の変化は反映しない（8.1 と同じ）。
+7. 応答を返す。成功なら `Set-Cookie: adminCookie(1 の値)`（rules.md 6.3）を付ける。
+
+決めたことと理由：
+
+- **ID がないときも PBKDF2 を計算する。** 計算しないと、ID がないときだけ応答が約30ms速くなり、ID の有無が時間からわかる（auth.md 8 の趣旨に反する）。形式が合わない、ない、削除した、のどれでも、ある ID と同じ1回の計算をする。CPU の負担は試行の上限（10分ごとに10回）で抑えられる。上限を超えた相手と本文が読めない要求には計算しない（auth.md 7）。
+- **形式の誤りも `AUTH_ADMIN_FAILED` にして、失敗として数える。** `INPUT_LOGIN_ID`・`INPUT_PASSWORD` を返すと、ID やパスワードの条件を外から確かめられる。パスワードの形式（`validatePassword`）は確かめない。条件に合わない値は保存してあるハッシュと一致しないので、確かめなくても結果は同じになる。本文の長さは 16 KiB までなので、PBKDF2 の入力が長くなりすぎることはない。
+- **本文が読めないとき（`INPUT_BODY`）は数えない。** ID もパスワードも試していないので、試行にならない。PBKDF2 も計算しない。
+- **形式に合わない ID は `'(invalid)'` と書き、そのまま残さない。** ID の欄にパスワードを打ち間違えた値などが記録に残らないようにする（SEC-4）。列の長さも32文字までに収まる。
+- **有効な Cookie を持ったまま呼ばれても、ふつうに処理する。** 古い証明の行はそのまま残る。新しい `Set-Cookie` でブラウザの値が上書きされるので、古い値はもう送られない。画面は、`GET /api/admin/me` で認証していないとわかったときだけ認証の画面を出すので、ふだんはこの場合が起きない。
+- **成功しても、その相手の失敗の数を戻さない。** 固定の10分の区切りのまま、仕組みを単純にする（auth.md 7）。
+- **同時に届いた試行も上限をすり抜けない。** 処理全体を包むので、3 で上限を確かめてから 6 で数えるまでの間に、ほかの試行が割り込まない（auth.md 7）。
+
+応答の `data`：
+
+| 項目 | 内容 |
+| --- | --- |
+| `id` | 管理者の番号 |
+| `login_id` | そろえた後の ID |
+| `display_name` | 表示用の名前 |
+
+返しうるコード（確かめる順）：
+
+| 順 | コード | 段 |
+| --- | --- | --- |
+| 1 | `NOT_FOUND_API` | 共1 |
+| 2 | `AUTH_ORIGIN` | 共2 |
+| 3 | `LIMIT_ATTEMPTS` | 共3（上限） |
+| 4 | `INPUT_BODY` | 共4 |
+| 5 | `AUTH_ADMIN_FAILED` | 共3（ID とパスワード） |
+
+記録：
+
+- 成功（`events`）：`at` は 2 の時刻、`actor_kind = 'admin'`、`actor_admin_id` と `admin_id` は認証した管理者の番号、`kind = 'admin_login'`、`detail` は `{"ip": …}`。`ip` は `CF-Connecting-IP` の値をそのまま入れる（ないときは `"unknown"`）。IPv6 を /64 にまとめない。追跡に使うので、細かいほうがよい。
+- 失敗（`auth_failures`）：上の 6。LOG-4 の「失敗の記録」にあたる。上限に達した後の試行は書かない（logging.md 4）。
+- どちらにも、パスワード・ハッシュ・証明の値を入れない（SEC-4, LOG-4）。
+
+### 8.5 管理者の API に共通の証明の確かめ方（共3。ADM-2）
+
+`GET /api/admin/me`・`POST /api/admin/logout` と、これから足す管理者の API（機器・予約の管理・数値・管理者のアカウント・共有された情報）は、すべて次のように確かめる。
+
+1. 準備（3.3 の 2）：`readCookie(Cookie, '__Host-dxp_admin')` で値を取り出す。`isTokenFormat` を通れば、その SHA-256 を求める。通らなければ、Cookie がないものとする（rules.md 6.3）。
+2. 共3：store がハッシュで `admin_sessions` の行を引き、あればその `admin_id` の管理者の行も引く（削除した行も含む）。`checkAdminSession(行, 管理者)` で判定する。Cookie がないときは行を `null` として渡す。
+3. 通ったら、API ごとの関数に、管理者の番号と証明の行の番号を渡す。記録の `actor_admin_id` はこの管理者の番号にする（LOG-4）。
+
+- **期限を延ばす。** 共3 を通った後の応答には、成功でも、後の段で断るとき（`INPUT_`・`RULE_` など）でも、`Set-Cookie: adminCookie(受け取った値)` を付ける（auth.md 3「使うたびに延ばす」）。表には書かない（schema.md 2.8）。例外の 500 には付けない（付けなくても、それまでの期限が残る）。
+- **共3 で断るときは `Set-Cookie` を付けない。** 画面は `AUTH_REQUIRED`・`AUTH_REVOKED` を受けたら認証の画面に移る。`AUTH_REVOKED` では「パスワードが設定し直されたか、アカウントが削除されたため」と案内できる（error-codes.md 3.2）。
+- **自動の変化は、共3 を通った後に反映する。** 管理者の API はすべて、API ごとの `transactionSync` の最初で反映する（architecture.md 手順 3）。
+- **パスワードの版で止める。** パスワードの設定し直し（8.2 と、管理者の画面からの設定し直し）で版が増えると、その管理者の証明は次の要求から `AUTH_REVOKED` になる。削除も `deleted_at` で同じく止まる（ADM-2「すべての端末で直ちに止める」）。
+
+### 8.6 `GET /api/admin/me`（認証の状態。ADM-2）
+
+管理者の画面を開いたときに呼び、認証しているかと、だれとして認証しているかを返す。経路の表では、認証の種類は「管理者」、包むかは「包まない」。
+
+処理：準備（8.5 の 1）→ `clock()` → 共3（8.5 の 2）→ `transactionSync` の中で自動の変化を反映する → 成功を返す（`Set-Cookie` で期限を延ばす）。
+
+応答の `data` は 8.4 と同じ（`id`・`login_id`・`display_name`）。
+
+返しうるコード（確かめる順）：`NOT_FOUND_API` → `AUTH_REQUIRED` → `AUTH_REVOKED`。`GET` なので `Origin` と本文は確かめない。
+
+記録：読むだけなので書かない。反映した自動の変化は記録する（logging.md 2）。
+
+### 8.7 `POST /api/admin/logout`（認証を解く。ADM-2）
+
+その端末の管理者の認証した状態を解く。ほかの端末の証明は止めない（ADM-2「認証した状態を解ける」）。経路の表では、認証の種類は「管理者」、包むかは「包まない」。
+
+要求の本文：項目なし。画面は `{}` を送る（共4 を例外にしないため。2）。
+
+処理：準備 → `clock()` → 共2 → 共3 → 共4 → `transactionSync` の中で、自動の変化を反映し、その証明の行の `ended_at` に 2 の時刻を書き、記録を書く → 成功を返す。
+
+- 応答の `data` は `{}`。`Set-Cookie: clearAdminCookie()`（rules.md 6.3）で端末の Cookie を消す。
+- 行は消さず、`ended_at` を入れるだけにする（LOG-5）。Cookie が消せなかった端末から同じ値が送られても、次の要求から `AUTH_REVOKED` になる。
+- すでに解いた証明で呼ばれたら `AUTH_REVOKED` を返す。画面は、成功と同じく認証の画面に移る。
+
+返しうるコード（確かめる順）：`NOT_FOUND_API` → `AUTH_ORIGIN` → `AUTH_REQUIRED` → `AUTH_REVOKED` → `INPUT_BODY`。
+
+記録（`events`）：`at` は 2 の時刻、`actor_kind = 'admin'`、`actor_admin_id` と `admin_id` はその管理者の番号、`kind = 'admin_logout'`、`detail` は `{"ip": …}`（8.4 と同じ）。
+
+### 8.8 台帳の層のテストの観点（管理者の認証）
+
+| ID | 確かめること |
+| --- | --- |
+| ADM-2 | 保守用の API で作った管理者の ID とパスワードで認証すると、`admin_sessions` に1行でき（版は管理者の現在の版）、`Set-Cookie` に `__Host-dxp_admin`・`HttpOnly`・`Secure`・`SameSite=Strict`・`Path=/`・`Max-Age=34560000` が付く。その Cookie で `GET /api/admin/me` が通り、`data` が管理者の値になる |
+| ADM-2 | `TANAKA` や全角の `ＴＡＮＡＫＡ` で認証しても通る。パスワードは大文字・小文字を区別する |
+| ADM-2 | ID がない、形式に合わない、削除した管理者（正しいパスワードでも）、パスワードが違う、パスワードが14文字や空白入り、のどれも `AUTH_ADMIN_FAILED`（401）で、応答の本文が同じ |
+| ADM-2 | ID がないときも、ある ID と同じく PBKDF2 が1回呼ばれる（テストで計算の関数を差し替えて数える）。`INPUT_BODY`・`LIMIT_ATTEMPTS`・`AUTH_ORIGIN` では呼ばれない |
+| ADM-2 | `logout` の後、同じ Cookie の値で `me` を呼ぶと `AUTH_REVOKED`。応答に `Max-Age=0` の `Set-Cookie` が付く。同じ管理者のほかの証明は止まらない |
+| ADM-2 | 保守用の API でパスワードを設定し直すと、その管理者のすべての証明が `AUTH_REVOKED` になる。`deleted_at` をテストが入れても同じ。ほかの管理者の証明は止まらない |
+| ADM-2 | Cookie がない、形が違う（42文字など）、表にない値は `AUTH_REQUIRED` |
+| ADM-2 | 共3 を通った管理者の API の応答には、同じ値の `Set-Cookie` が付く（`logout` の成功を除く）。共3 で断る応答には付かない |
+| SEC-3 | 失敗すると `auth_failures` の `entry = 'admin_login'` の行が1増え、ID がないなら `unknown_id_failures`、パスワードが違えば `wrong_password_failures` が増える。`last_login_id` はそろえた ID、形式に合わなければ `'(invalid)'` |
+| SEC-3 | 10回失敗した後は、正しい ID とパスワードでも `LIMIT_ATTEMPTS`（429）で、行が変わらない。別の IP は止まらない。次の10分の区切りでは通る。成功しても失敗の数は戻らない |
+| SEC-3 | 上限を超えた相手には、本文が壊れていても `LIMIT_ATTEMPTS`（上限が先）。上限の前なら、本文が壊れていると `INPUT_BODY` で、失敗は増えない |
+| SEC-3 | `logout` で `Origin` がないと `AUTH_ORIGIN`。`login` も同じ。`me`（`GET`）は確かめない |
+| RSV-23 | 9回失敗した相手から認証を2つ同時に送ると、1つ目の失敗で上限に達し、2つ目は `LIMIT_ATTEMPTS` になる（包んでいるので割り込まない） |
+| LOG-4 | 成功すると `admin_login`、`logout` で `admin_logout` が `actor_admin_id` 付きで1行でき、`detail` は `ip` だけ。`events`・`auth_failures` のどの列にも、パスワード・証明の値・そのハッシュが入っていない |
+| RSV-21 | 開始時刻＋猶予を過ぎた予約済の予約がある台帳で、認証の成功や `me` を呼ぶと無断不使用になる。認証の失敗では変わらない |
+
 ## 採らなかった案
 
 | 案 | 理由 |
@@ -322,3 +445,10 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | パスワードの設定し直しの相手をパスの login_id で指す | 基本設計の経路（`{id}`）が変わり、管理者の画面からの設定し直しと形がそろわない。番号は応答と Data Studio でわかる（8.2） |
 | 保守用に管理者の一覧の API を足す | 要件にない。Data Studio で足りる（8.2） |
 | PBKDF2 を、ソルトが手元にあるので準備（3.3 の 2）で計算する | 鍵を確かめる前に計算すると、鍵を知らない相手に CPU を使わせる（auth.md 7） |
+| 管理者の認証で、ID がないときは PBKDF2 を計算しない | 応答の時間から ID の有無がわかる（8.4） |
+| 管理者の認証で、ID・パスワードの形式の誤りを `INPUT_` で返す | ID とパスワードの条件を外から確かめられる（8.4） |
+| 有効な Cookie を持ったまま認証したら、古い証明を解く | 古い値はブラウザで上書きされて送られなくなるので、得るものが小さく、分岐が増える（8.4） |
+| 認証に成功したら、その相手の失敗の数を戻す | 仕組みが増える。固定の区切りで足りる（auth.md 7） |
+| `logout` だけ本文を求めない | 共4 の例外が増える。画面は `{}` を送れば足りる（8.7） |
+| 記録の `ip` を `clientKey` でまとめた値にする | 追跡に使うので、細かい値のほうがよい（8.4） |
+| 共3 で断るときに Cookie を消す | 画面は `AUTH_REQUIRED`・`AUTH_REVOKED` で認証の画面に移るので要らない（8.5） |
