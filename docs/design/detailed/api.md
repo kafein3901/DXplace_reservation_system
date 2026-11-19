@@ -1,11 +1,11 @@
 # API
 
-- 状態：作成中（共通の部分と、screens-and-api.md 5 の一覧のすべての API の入出力を決定。詳細設計のレビューで見直す）
+- 状態：決定（2026-11-19 の詳細設計のレビューの後）
 - 日付：2026-11-19
-- 関係する要件：USR-1〜USR-7, LOG-1〜LOG-4, MNG-1〜MNG-3, VIW-1, RSV-2〜RSV-20, TIM-1〜TIM-7, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
+- 関係する要件：PRE-5, PRE-11, USR-1〜USR-7, ADM-1〜ADM-3, TIM-1〜TIM-7, RSV-2〜RSV-27, VIW-1〜VIW-3, MNG-1〜MNG-4, LOG-1〜LOG-5, SEC-2〜SEC-4, NFR-3, NFR-4, FUT-1, FUT-4
 - 前提：[architecture.md](../basic/architecture.md) 1, 3, 4（Worker は渡すだけ、手順 1〜7）、[screens-and-api.md](../basic/screens-and-api.md) 4〜7（API の一覧、応答の形）、[auth.md](../basic/auth.md) 1, 3, 6, 7（入口の種類、Cookie と Origin、保守用の鍵、試行の制限）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 2, 4（時刻を取る位置、`blockConcurrencyWhile`）、[error-codes.md](error-codes.md)、[schema.md](schema.md) 5（版の適用）
 
-ここでは、すべての API に共通の受け渡しの形、Worker と台帳の受け渡し、デプロイの直後の版の食い違いへの備え、保守用の API の `curl` 手順の形を決める。API ごとの入出力と返しうるコードは、機能ごとの設計で 8 に足す。
+ここでは、すべての API に共通の受け渡しの形、Worker と台帳の受け渡し、デプロイの直後の版の食い違いへの備え、保守用の API の `curl` 手順の形を決める。API ごとの入出力と返しうるコードは 8 に書く。
 
 ## 1. 応答の形
 
@@ -46,6 +46,7 @@ Worker はこれ以外に何もしない。版の食い違い（下の 5）の�
 ### 3.2 台帳（`src/ledger.js`）
 
 - constructor で、版の適用を `blockConcurrencyWhile` に包んで行う（schema.md 5）。
+- `handle(request, clock)` も `ledger.js` に置く。3.3 の共通の流れを組み、経路は `src/api/routes.js` の表から引く（architecture.md 4）。
 - `fetch(request)` は `handle(request, Date.now)` を呼ぶだけ。テストは `runInDurableObject` で `handle` を任意の時計で呼ぶ（time-and-concurrency.md 2, 5）。
 
 ### 3.3 経路の表（`src/api/routes.js`）
@@ -65,7 +66,7 @@ API は1つの表に並べる。1行が1つの API。
 2. `await` が要る準備（architecture.md 3 の手順 1）：本文を読む（壊れていても、ここでは断らずに印を付ける）、Cookie の値の SHA-256、新しく渡す証明の値とそのハッシュ、共有された情報・保守用の鍵のハッシュ（auth.md 3、下の 6.1）、パスワードを新しく設定する操作のソルト（下の 8.1）。
 3. 現在時刻を `clock()` で1回だけ取る。包む API は、包んだ中で 2 の後に取る。
 4. 同期の区間に入り、下の 4 の共通の順で確かめる。
-5. API ごとの関数を呼ぶ（手順 3〜6 は `transactionSync` の中。time-and-concurrency.md 4）。
+5. API ごとの関数を呼ぶ（手順 4〜6 は `transactionSync` の中。time-and-concurrency.md 4）。
 
 ### 3.4 実装で確かめること
 
@@ -73,6 +74,18 @@ API は1つの表に並べる。1行が1つの API。
 - Worker から台帳に渡した要求の本文を、台帳で読めること。
 
 **基盤で確かめたこと（2026-11-19、spike の `/headers`）**：Worker が受けた要求をそのまま `stub.fetch(request)` で渡すと、台帳で `Origin`・`Cookie` のヘッダと本文が読めた。`CF-Connecting-IP` は、本番の基盤では送り元の IP の値が入り、手元の `wrangler dev` では `127.0.0.1` だった。台帳の層のテストでは、引き続きテストがヘッダを付けて呼ぶ。
+
+### 3.5 自動の変化の書き込み（RSV-13, RSV-16, RSV-19, RSV-21, LOG-3）
+
+各 API の「自動の変化を反映する（rules.md 5）」は、`transactionSync` の中で次を行う。
+
+1. store が、予約済・利用中のうち開始時刻が `nowMin` 以下の予約を引く（`reservations_status_start`。rules.md 5.2、schema.md 3）。数値の履歴の全件も引く。
+2. `dueTransitions(予約, 履歴, nowMin)`（rules.md 5.1）を呼ぶ。
+3. 返された順に1件ずつ、予約の `status` を移る先（`no_show`・`finished`）にする。`start_at`・`end_at`・`cause`・`walk_in` は変えない（RSV-16 の無断不使用も、RSV-19 の終了も、終了時刻はもとのまま）。
+4. 1件ごとに `events` に1行書く。`at` は起きる時刻（ルール上の時刻。RSV-21）、`actor_kind = 'auto'`、`kind = 'reservation_status'`、`reservation_id`・`device_id`・`user_id` はその予約の値、`actor_admin_id`・`admin_id` は `NULL`、`detail` は `{"from": 前の状態, "to": 移る先}`（時刻を書き換えないので `start_at`・`end_at` は入れない。schema.md 2.9）。
+
+- 反映した結果は、その要求が後で断られても残る（各 API の「反映した自動の変化は残る」）。例外が起きたときだけ、`transactionSync` が取り消す（time-and-concurrency.md 4）。
+- 読むだけの API でも書く（logging.md 2）。
 
 ## 4. 共通の確かめる順
 
@@ -193,6 +206,8 @@ API を変えるときの決まり：
 | ヘッダ | 成功でも断るときでも `Cache-Control: no-store` が付く |
 | 例外 | 処理の途中で例外が起きると 500 と `{ "ok": false }` を返し、表に何も書かれていない |
 | 時計 | 1つの要求で `clock()` が1回だけ呼ばれる |
+| 失敗の記録の上限（LOG-4, LOG-5） | `auth_failures` に行を足して番号が 10,001 になると番号 1 の行が消え、10,000 のときは消えない。ほかの表の行は変わらない（schema.md 2.10） |
+| 自動の変化 | 猶予を過ぎた予約済は `no_show`、終了時刻を過ぎた利用中は `finished` になり、`start_at`・`end_at` は変わらない。記録は `actor_kind = 'auto'`・`at` はルール上の時刻・`detail` は `from`・`to` だけ。同じ時刻の変化は予約の番号の順に書かれる。後で断られた要求でも残る（RSV-21, RSV-22） |
 
 テスト名は関係する要件の ID で始める。要件の ID がない仕組みのテストは `API` で始める（schema.md 5.4 の `SCHEMA` と同じ扱い）。
 
@@ -389,7 +404,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 
 - **期限を延ばす。** 共3 を通った後の応答には、成功でも、後の段で断るとき（`INPUT_`・`RULE_` など）でも、`Set-Cookie: adminCookie(受け取った値)` を付ける（auth.md 3「使うたびに延ばす」）。表には書かない（schema.md 2.8）。例外の 500 には付けない（付けなくても、それまでの期限が残る）。`logout`（8.7）の成功と、自分自身の削除（8.47）の成功では、延ばさずに `clearAdminCookie()` を付ける。
 - **共3 で断るときは `Set-Cookie` を付けない。** 画面は `AUTH_REQUIRED`・`AUTH_REVOKED` を受けたら認証の画面に移る。`AUTH_REVOKED` では「パスワードが設定し直されたか、アカウントが削除されたため」と案内できる（error-codes.md 3.2）。
-- **自動の変化は、共3 を通った後に反映する。** 管理者の API はすべて、API ごとの `transactionSync` の最初で反映する（architecture.md 手順 3）。
+- **自動の変化は、共3 を通った後に反映する。** 管理者の API はすべて、API ごとの `transactionSync` の最初で反映する（architecture.md 手順 4）。
 - **パスワードの版で止める。** パスワードの設定し直し（8.2 と 8.46）で版が増えると、その管理者の証明は次の要求から `AUTH_REVOKED` になる。削除（8.47）も `deleted_at` で同じく止まる（ADM-2「すべての端末で直ちに止める」）。
 
 ### 8.6 `GET /api/admin/me`（認証の状態。ADM-2）

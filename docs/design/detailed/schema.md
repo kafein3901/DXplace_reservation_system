@@ -2,7 +2,7 @@
 
 - 状態：決定
 - 日付：2026-11-19
-- 関係する要件：USR-4, USR-7, ADM-2, ADM-3, RSV-1, RSV-3, RSV-4, RSV-21, RSV-25, RSV-26, TIM-3, TIM-5, TIM-7, MNG-1〜MNG-3, LOG-1〜LOG-6, SEC-4, NFR-3, FUT-4, FUT-5
+- 関係する要件：PRE-5, USR-2〜USR-7, ADM-2, ADM-3, TIM-3, TIM-5, TIM-7, RSV-1〜RSV-21, RSV-25, RSV-26, VIW-1, MNG-1〜MNG-3, LOG-1〜LOG-6, SEC-3, SEC-4, NFR-3, FUT-4, FUT-5
 - 前提：[domain-model.md](../basic/domain-model.md)（まとまりと状態）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 1（時刻はミリ秒）、[auth.md](../basic/auth.md) 3, 4, 7（証明、ハッシュ、試行の制限）、[logging.md](../basic/logging.md)（記録の2つの表、索引、容量）、[architecture.md](../basic/architecture.md) 7（スキーマの版）、[testing-and-deploy.md](../basic/testing-and-deploy.md) 4（足す形だけで変える）、[rules.md](rules.md) 3, 5（store と rules の分担、自動の変化）
 
 ここでは、台帳の SQLite の表・列・値・索引、初期データ、スキーマの版の適用を決める。SQL は `src/store/` にだけ書く（architecture.md 4）。
@@ -242,7 +242,7 @@ CREATE INDEX events_user_at ON events (user_id, at);
 - 状態の変化を1つの `kind` にまとめ、どの状態へ移ったかは `detail` の `to` で区別する。LOG-3 の区別（取消・無断不使用・管理者による取消、終了・管理者による終了）は `to` の値で表せる。本人の操作による終了か自動による終了かは、`actor_kind` で区別する（domain-model.md 4.1）。
 - 状態の変化に伴う時刻の書き換えは、その `reservation_status` の1行に入れ、`reservation_time_changed` を別に書かない（1回の操作を1行にする。logging.md 2。2026-11-19 に利用開始の設計で決めた）。LOG-3 の「時間帯の変更（RSV-15 を含む）」は、`reservation_time_changed` と、`detail` に `start_at` を持つ `reservation_status` を合わせて引く。
 - `detail` に入れる項目は `kind` ごとに決めた形だけにし、リクエストの本文をそのまま入れない（logging.md 3）。
-- `detail` の細かい項目は、機能ごとの設計で確かめる。足すのはよいが、すでに入れた項目の意味は変えない。
+- `detail` の項目は足してよいが、すでに入れた項目の意味は変えない。
 
 ### 2.10 `auth_failures`（認証の失敗。SEC-3、LOG-4）
 
@@ -290,7 +290,7 @@ CREATE TABLE schema_migrations (
 | 索引 | 使う処理 | 条件 |
 | --- | --- | --- |
 | `reservations_status_start` | 自動の変化の反映（rules.md 5.2） | `status IN ('reserved', 'in_use') AND start_at <= nowMin` |
-| `reservations_device_status` | 確保・変更・予約なしの利用の重なり（RSV-3, RSV-20）、管理者の一覧（MNG-3）、機器の削除（MNG-2） | `device_id = ? AND status IN ('reserved', 'in_use')` |
+| `reservations_device_status` | 確保・変更・予約なしの利用の重なり（RSV-3, RSV-20）、利用開始の前倒し（RSV-15）、管理者の一覧（MNG-3）、機器の削除（MNG-2） | `device_id = ? AND status IN ('reserved', 'in_use')` |
 | `reservations_user_status` | 件数（RSV-4）、自分の予約（RSV-7） | `user_id = ? AND status IN ('reserved', 'in_use')` |
 | `reservations_device_end` | 予約状況の1日分（VIW-1） | `device_id = ? AND end_at >= 日の始まり AND start_at < 日の終わり`（状態では絞らない。api.md 8.24） |
 | `events_at`・`events_device_at`・`events_user_at` | FUT-4 の期間・機器・利用者での絞り込み（v0.1.0 では Data Studio の SQL。logging.md 6） | ― |

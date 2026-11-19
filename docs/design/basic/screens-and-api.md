@@ -149,7 +149,7 @@ QR コードを読む（#k=値 付きで開く）
 
 - 境界の時刻は、HTML の `<input type="datetime-local">` が返す形と同じ。秒を書けない形なので、分単位（TIM-3）が形の上で守られる。秒の付いた値や、形に合わない値は断る。
 - 台帳は受け取ったら `src/lib/time.js` でミリ秒に直し、返すときに日本時間の文字列に戻す（time-and-concurrency.md 1）。
-- 予約状況の応答には、台帳の現在時刻（日本時間）も入れる。画面は、時刻の入力の初期値などをこれから作り、端末の時計に頼らない（TIM-1）。
+- 予約状況・利用者の機器の一覧・自分の予約の応答には、台帳の現在時刻（日本時間）も入れる（detailed/api.md 8.22・8.24・8.29）。画面は、時刻の入力の初期値などをこれから作り、端末の時計に頼らない（TIM-1）。
 
 ### 7. 応答の形と理由のコード（RSV-27）
 
@@ -176,7 +176,7 @@ QR コードを読む（#k=値 付きで開く）
 | `LIMIT_` | 試行の上限 | 429 | `LIMIT_ATTEMPTS`（SEC-3） |
 | `NOT_FOUND_` | 指したものがない、自分のものでない | 404 | `NOT_FOUND_RESERVATION`、`NOT_FOUND_USER`（`/api/me` をしていない） |
 | `STATE_` | いまの状態ではできない | 409 | `STATE_NOT_RESERVED`（RSV-8）、`STATE_NOT_IN_USE`（RSV-18） |
-| `RULE_` | 予約のルールに反する | 409 | `RULE_OVERLAP`（RSV-3）、`RULE_COUNT`（RSV-4）、`RULE_LENGTH`（RSV-6）、`RULE_PAST`（TIM-6）、`RULE_DEVICE_IN_USE`（MNG-2）、`RULE_LAST_ADMIN`（ADM-2） |
+| `RULE_` | 予約のルールに反する | 409 | `RULE_OVERLAP`（RSV-3）、`RULE_COUNT`（RSV-4）、`RULE_LENGTH`（RSV-6）、`RULE_PAST`（TIM-6）、`RULE_DEVICE_IN_USE`（MNG-2）、`RULE_ADMIN_LAST`（ADM-2） |
 
 - 自分のものでない予約を指したときは、`NOT_FOUND_RESERVATION` を返す（他人の予約があるかどうかを、操作で確かめられないように）。
 - コードの一覧と、それぞれがどの要件の ID に当たるかは、詳細設計で表にする。テスト名にも要件の ID を入れる（CLAUDE.md）。
