@@ -1,8 +1,8 @@
 # API
 
-- 状態：作成中（共通の部分、保守用の API、管理者の認証、共有された情報の設定、利用の開始、利用者の入力、機器、予約状況・確保、予約なしの利用、自分の予約・取消、時間帯の変更、利用開始・利用終了を決定。残りの API の入出力は、機能ごとの設計で足す）
+- 状態：作成中（共通の部分、保守用の API、管理者の認証、共有された情報の設定、利用の開始、利用者の入力、機器、予約状況・確保、予約なしの利用、自分の予約・取消、時間帯の変更、利用開始・利用終了、予約の管理を決定。残りの API の入出力は、機能ごとの設計で足す）
 - 日付：2026-11-19
-- 関係する要件：USR-1〜USR-7, LOG-1〜LOG-4, MNG-1, MNG-2, VIW-1, RSV-2〜RSV-20, TIM-1〜TIM-7, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
+- 関係する要件：USR-1〜USR-7, LOG-1〜LOG-4, MNG-1〜MNG-3, VIW-1, RSV-2〜RSV-20, TIM-1〜TIM-7, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
 - 前提：[architecture.md](../basic/architecture.md) 1, 3, 4（Worker は渡すだけ、手順 1〜7）、[screens-and-api.md](../basic/screens-and-api.md) 4〜7（API の一覧、応答の形）、[auth.md](../basic/auth.md) 1, 3, 6, 7（入口の種類、Cookie と Origin、保守用の鍵、試行の制限）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 2, 4（時刻を取る位置、`blockConcurrencyWhile`）、[error-codes.md](error-codes.md)、[schema.md](schema.md) 5（版の適用）
 
 ここでは、すべての API に共通の受け渡しの形、Worker と台帳の受け渡し、デプロイの直後の版の食い違いへの備え、保守用の API の `curl` 手順の形を決める。API ごとの入出力と返しうるコードは、機能ごとの設計で 8 に足す。
@@ -218,6 +218,7 @@ API を変えるときの決まり：
 | `POST /api/my/reservations`、`POST /api/reservations/{id}/cancel` | 自分の予約・取消（RSV-7, RSV-8） | 済（8.29〜8.31） |
 | `POST /api/reservations/{id}/change` | 時間帯の変更（RSV-9〜RSV-12） | 済（8.32〜8.33） |
 | `POST /api/reservations/{id}/begin`、`…/finish` | 利用開始・利用終了（RSV-13〜RSV-16, RSV-18, RSV-19） | 済（8.34〜8.36） |
+| `GET /api/admin/devices/{id}/reservations`、`POST /api/admin/reservations/{id}/cancel`、`…/finish` | 予約の管理（MNG-3） | 済（8.37〜8.40） |
 | screens-and-api.md 5 の一覧の残りすべて | rules.md 6 の表の各機能と、利用者の入力・予約状況 | 未 |
 
 ### 8.1 `POST /api/maint/admins`（管理者の作成。ADM-2）
@@ -853,7 +854,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 
 記録：読むだけなので書かない。
 
-予約状況（`GET /api/devices/{id}/day`）は予約の操作の機能で決めた（8.24）。予約の状態・日本時間の日の範囲・利用者の名前を扱い、予約がないうちは手で確かめられないため。機器ごとの予約の管理者向けの一覧（`GET /api/admin/devices/{id}/reservations`）は、予約の管理（MNG-3）の機能で決める。
+予約状況（`GET /api/devices/{id}/day`）は予約の操作の機能で決めた（8.24）。予約の状態・日本時間の日の範囲・利用者の名前を扱い、予約がないうちは手で確かめられないため。機器ごとの予約の管理者向けの一覧（`GET /api/admin/devices/{id}/reservations`）は、予約の管理（MNG-3）の機能で決めた（8.37）。
 
 ### 8.23 台帳の層のテストの観点（機器）
 
@@ -1443,6 +1444,154 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | USR-2 | どちらも、Cookie がないと `AUTH_REQUIRED`、`Origin` がないと `AUTH_ORIGIN`。管理者の Cookie だけでも `AUTH_REQUIRED`（ADM-1） |
 | API | `{id}` が `0`・`01`・`abc` なら `NOT_FOUND_API`。本文に `start`・`end` を入れても無視される（前倒しの開始は `nowMin`、終了は `nowMin`） |
 
+### 8.37 `GET /api/admin/devices/{id}/reservations`（機器ごとの予約の一覧。MNG-3, TIM-1）
+
+管理者の画面の「予約の管理」で、機器を選んだとき・「最新にする」を押したとき・取消や終了の後に呼ぶ（VIW-3 と同じ考え方）。経路の表では、認証の種類は「管理者」、包むかは「包まない」。
+
+要求：
+
+| もの | 内容 |
+| --- | --- |
+| パスの `{id}` | 機器の番号。正の整数の形でなければ `NOT_FOUND_API`（2） |
+
+処理：
+
+1. 準備：管理者の Cookie の値のハッシュを求める（8.5 の 1）。
+2. `clock()` で現在時刻を取り、`nowMin = floorMinute(now)`。
+3. 共3（8.5 の 2）。`GET` なので共2・共4 はない。段 1 に当たるものはない。
+4. `transactionSync` の中で：
+   1. 自動の変化を反映する（rules.md 5）。
+   2. store が引く：`{id}` の機器（削除した行も含む。なければ `null`）、その機器の予約済・利用中の全件（`reservations_device_status`。schema.md 3）に `users` を結合して `role`・`student_id`・`name` を付けたもの。機器が `null` なら予約は空の配列とする。
+   3. `checkDeviceReservations`（rules.md 6.16）。断られたら、そのコードを返す（反映した自動の変化は残る。8.19）。
+5. 成功を返す（`Set-Cookie` で期限を延ばす。8.5）。
+
+決めたことと理由：
+
+- **学籍番号を返す（MNG-3）。** 管理者の表示では、名前が重なりうるので学籍番号で利用者を見分ける。VIW-2 は一般の利用者への応答の決まりで、管理者の API には当てはまらない。
+- **自動の変化を反映してから引く（RSV-21）。** 猶予を過ぎた予約済、終了時刻を過ぎた利用中は一覧に出ない。
+- **名前は現在の値（USR-7）。** 表示のたびに `users` から引く。
+- **期生・`walk_in`・`now` を入れない（2026-11-19 に開発者が了承）。** MNG-3 が挙げる項目は「生徒か教員か、学籍番号、名前」だけで、利用者は学籍番号で見分けられる。出す操作は `status` だけで決まり（予約済なら取消、利用中なら終了）、時刻によらない。
+- **過去の予約は出さない。** MNG-3 は対象を選ぶための一覧で、予約済・利用中だけを求めている。履歴は記録に残る（FUT-4）。
+
+応答の `data`：
+
+| 項目 | 内容 |
+| --- | --- |
+| `reservations` | `checkDeviceReservations` が返した順の配列。1つは下の表。なければ空の配列 |
+
+`reservations` の1つ：
+
+| 項目 | 内容 |
+| --- | --- |
+| `id` | 予約の番号。取消・終了の API のパスに使う |
+| `start`・`end` | `formatDateTime` の値 |
+| `status` | `reserved`・`in_use` のどちらか |
+| `role` | 利用者の `student`・`teacher`（MNG-3「生徒か教員かの区別」） |
+| `student_id` | 利用者のそろえた学籍番号（schema.md 2.1） |
+| `name` | 利用者の現在の名前 |
+
+返しうるコード（確かめる順）：`NOT_FOUND_API`（`{id}` が正の整数の形でないときも）→ `AUTH_REQUIRED`・`AUTH_REVOKED` → `NOT_FOUND_DEVICE`（段 2。ない、または削除済み）。
+
+記録：読むだけなので書かない。反映した自動の変化は記録する（logging.md 2）。
+
+### 8.38 `POST /api/admin/reservations/{id}/cancel`（管理者による取消。MNG-3, RSV-23, LOG-3, LOG-4）
+
+管理者の画面の「予約の管理」で、予約済の予約の「取消」を押したときに呼ぶ。経路の表では、認証の種類は「管理者」、包むかは「包まない」。
+
+要求：
+
+| もの | 内容 |
+| --- | --- |
+| パスの `{id}` | 予約の番号。正の整数の形でなければ `NOT_FOUND_API`（2） |
+| 本文 | 項目なし。画面は `{}` を送る（8.21 と同じ） |
+
+処理：
+
+1. 準備：本文を読む。管理者の Cookie の値のハッシュを求める（8.5 の 1）。
+2. `clock()` で現在時刻 `now` を取り、`nowMin = floorMinute(now)`。
+3. 共2（`Origin`）→ 共3（8.5 の 2）→ 共4（本文が JSON のオブジェクトであること）。段 1 に当たるものはない。
+4. `transactionSync` の中で：
+   1. 自動の変化を反映する（rules.md 5）。
+   2. store が `{id}` の予約を引く（状態を問わない。なければ `null`）。
+   3. `checkAdminCancel`（rules.md 6.16）。断られたら、そのコードを返す（反映した自動の変化は残る。8.19）。
+   4. 予約の `status` を `admin_cancelled`、`cause` を `admin_action` にする。`start_at`・`end_at` は変えない。記録を書く。
+5. 成功を返す（`Set-Cookie` で期限を延ばす。8.5）。
+
+決めたことと理由：
+
+- **本人の確かめはない（MNG-3）。** 予約は番号だけで引き、どの利用者の予約でも取り消せる。
+- **自動の変化が先（RSV-22）。** 猶予の終わりがちょうど `nowMin` の予約済は無断不使用になり、管理者による取消は `STATE_NOT_RESERVED` になる。猶予の中なら開始時刻を過ぎていても取り消せる。
+- **直ちに解放する。** 状態を `admin_cancelled` にした時点で重なり・件数の対象から外れる（rules.md 6.10 は状態で数える）。
+- **ほぼ同時の操作（RSV-23）。** 3 の後から 4 の終わりまでに `await` がないので、包まなくても割り込まれない。管理者による取消と、同じ予約への本人の取消・利用開始・時間帯の変更・機器の削除・ほかの管理者による取消が同時なら、先に処理された方の結果の状態を見て、後の方が断られる（後が管理者による取消なら `STATE_NOT_RESERVED`）。
+- **時刻は秒を切り捨てない（TIM-5）。** 取消は時間帯の境界を決めないので、記録の `at` は `now` のまま。
+
+応答の `data`：8.25 と同じ形（`id`・`device_id`・`start`・`end`・`status`）。`status` は `admin_cancelled`。画面は成功したら一覧を取り直す。
+
+返しうるコード（確かめる順）：
+
+| 順 | コード | 段 |
+| --- | --- | --- |
+| 1 | `NOT_FOUND_API`（`{id}` が正の整数の形でないときも） | 共1 |
+| 2 | `AUTH_ORIGIN` | 共2 |
+| 3 | `AUTH_REQUIRED`・`AUTH_REVOKED` | 共3 |
+| 4 | `INPUT_BODY` | 共4 |
+| 5 | `NOT_FOUND_RESERVATION` | 2 |
+| 6 | `STATE_NOT_RESERVED` | 3 |
+
+記録（`events`。LOG-3, LOG-4）：`at = now`、`actor_kind = 'admin'`、`actor_admin_id` は操作した管理者の番号、`kind = 'reservation_status'`、`reservation_id`・`device_id`・`user_id` はその予約の値、`admin_id` は `NULL`、`detail` は `{"from": "reserved", "to": "admin_cancelled", "cause": "admin_action"}`（時刻を書き換えないので `start_at`・`end_at` は入れない。schema.md 2.9）。断ったときは書かない（反映した自動の変化の記録を除く）。
+
+### 8.39 `POST /api/admin/reservations/{id}/finish`（管理者による終了。MNG-3, RSV-23, TIM-4, TIM-7, LOG-3, LOG-4）
+
+管理者の画面の「予約の管理」で、利用中の予約の「終了」を押したときに呼ぶ。経路の表では、認証の種類は「管理者」、包むかは「包まない」。
+
+要求：8.38 と同じ（パスの `{id}` と本文 `{}`）。終了時刻は受け取らない（MNG-3、TIM-4）。`end` が送られても無視する（2）。
+
+処理：8.38 と同じ流れで、4 を次のようにする。
+
+1. 自動の変化を反映する（rules.md 5）。
+2. store が `{id}` の予約を引く（状態を問わない。なければ `null`）。
+3. `checkAdminFinish`（rules.md 6.16）。断られたら、そのコードを返す（反映した自動の変化は残る）。
+4. 予約の `status` を `admin_finished`、`end_at` を返された `end`（`nowMin`）、`cause` を `admin_action` にする。`start_at`・`walk_in`・`device_id` は変えない。記録を書く。
+
+決めたことと理由：
+
+- **自動の変化が先（RSV-19, RSV-22）。** 終了時刻がちょうど `nowMin` の利用中は自動で終了（`finished`）になり、管理者による終了は `STATE_NOT_IN_USE` になる。結果の状態は `admin_finished` ではなく `finished` のまま。
+- **直ちに解放する。** 状態を `admin_finished` にした時点で重なりの対象から外れ、`[nowMin, 元の終了)` は、その場で確保・予約なしの利用ができる。機器が使えなくなったときにその後の利用を止める手段は、機器の削除のほかにない（MNG-4。承知のうえの制約）。
+- **長さ0を認める（TIM-7）。** 予約なしの利用・前倒しの利用開始と同じ分に終了させると `start_at = end_at` になる。予約状況では開始時刻を含む日に `admin_finished` として出る（rules.md 6.9）。
+- **ほぼ同時の操作（RSV-23）。** 3 の後から 4 の終わりまでに `await` がないので、包まなくても割り込まれない。同じ予約への本人の利用終了・ほかの管理者による終了が同時なら、後の方が `STATE_NOT_IN_USE`。終了時刻の延長と同時なら、先に処理された方の結果を見て、後の延長は `STATE_NOT_ACTIVE`、後の管理者による終了は延長後の予約を終える（8.35 と同じ）。
+- **時刻。** 終了時刻は `nowMin`（TIM-4）。記録の `at` は `now`（TIM-5）。
+
+応答の `data`：8.25 と同じ形。`end` は `formatDateTime(nowMin)`、`status` は `admin_finished`。画面は成功したら一覧を取り直す。
+
+返しうるコード（確かめる順）：8.38 と同じで、6 が `STATE_NOT_IN_USE`（段 3）。
+
+記録（`events`。LOG-3, LOG-4）：8.38 と同じ形で、`detail` は `{"from": "in_use", "to": "admin_finished", "cause": "admin_action", "end_at": {"before": ミリ秒, "after": ミリ秒}}`（予定していた終了時刻を `before` に残す。8.35 と形をそろえる。logging.md 2）。断ったときは書かない（反映した自動の変化の記録を除く）。
+
+### 8.40 台帳の層のテストの観点（予約の管理）
+
+時計は例として 10:00:30（`nowMin` = 10:00）、猶予は初期値（15分）。
+
+| ID | 確かめること |
+| --- | --- |
+| MNG-3 | 機器 A に、生徒の予約済・教員の予約済・予約なしの利用の利用中があり、機器 B にも予約済があるとき、A の一覧は A の3件だけを開始時刻の順に返す。取消・無断不使用・終了・管理者による取消・管理者による終了の予約は出ない。予約がなければ `reservations` は空の配列 |
+| MNG-3 | 一覧の1つが `id`・`start`・`end`・`status`・`role`・`student_id`・`name` だけで、`student_id` はそろえた値、`name` は名前を置き換えた後の現在の値 |
+| MNG-3 | 削除した機器、ない番号の一覧は `NOT_FOUND_DEVICE`（404） |
+| MNG-3 | 予約済を管理者が取り消すと、`status` が `admin_cancelled`・`cause` が `admin_action`、`start_at`・`end_at` は変わらず、応答の `status` が `admin_cancelled`。`reservation_status` が1行でき、`detail` が `{"from":"reserved","to":"admin_cancelled","cause":"admin_action"}` |
+| MNG-3 | 取り消した直後に、同じ機器の同じ時間帯を別の人が確保できる。取り消された人の件数（RSV-4）から外れる |
+| MNG-3 | 開始時刻を過ぎて猶予の中の予約済は取り消せる。開始時刻＋猶予がちょうど `nowMin` の予約済は無断不使用になり（記録は自動）、取消は `STATE_NOT_RESERVED`（409） |
+| MNG-3 | 利用中・2回目の管理者による取消・本人が取り消した予約の取消は `STATE_NOT_RESERVED` で、表と `events` が変わらない。ない番号は `NOT_FOUND_RESERVATION`（404） |
+| MNG-3, TIM-4 | 利用中 [9:00, 11:00) を管理者が終了させると、`status` が `admin_finished`・`cause` が `admin_action`・`end_at` が 10:00、応答の `end` が `formatDateTime(nowMin)`。`reservation_status` の `detail` が `{"from":"in_use","to":"admin_finished","cause":"admin_action","end_at":{"before":11:00 のミリ秒,"after":10:00 のミリ秒}}` |
+| MNG-3 | 終了させた直後に、同じ機器の [10:00, 11:00) を別の人が確保・予約なしの利用で使える。その日の予約状況に `admin_finished` として出る |
+| MNG-3, RSV-22 | 終了時刻がちょうど 10:00 の利用中は自動で終了になり（`status` は `finished`、記録は `actor_kind = 'auto'`）、管理者による終了は `STATE_NOT_IN_USE`（409） |
+| TIM-7 | 時計 10:00:10 に予約なしの利用を始め、10:00:50 に管理者が終了させると `start_at = end_at` = 10:00 で成功する |
+| MNG-3 | 予約済・2回目の管理者による終了は `STATE_NOT_IN_USE`。ない番号は `NOT_FOUND_RESERVATION` |
+| LOG-4 | 取消・終了の記録に `actor_kind = 'admin'` と、操作した管理者の番号の `actor_admin_id` が入り、`at` は秒を切り捨てていない時刻 |
+| RSV-23 | 同じ予約への管理者による取消と本人の利用開始を同時に送ると、1つが成功し、もう1つが `STATE_NOT_RESERVED`。管理者による終了と本人の利用終了を同時に送ると、1つが `STATE_NOT_IN_USE`。記録の `reservation_status` はそれぞれ1行 |
+| RSV-21 | 一覧・取消・終了とも、段 2 以降で断っても、反映した自動の変化が残る |
+| ADM-1 | 3つの API とも、利用者の Cookie だけでは `AUTH_REQUIRED`。管理者の証明を解いた後は `AUTH_REVOKED` |
+| API | 取消・終了で `Origin` がないと `AUTH_ORIGIN`、本文が壊れていると `INPUT_BODY`。一覧（`GET`）は `Origin` を確かめない。`{id}` が `0`・`01`・`abc` なら `NOT_FOUND_API`。終了の本文に `end` を入れても無視される |
+| MNG-3 | 一覧の SQL を `EXPLAIN QUERY PLAN` で見ると `reservations_device_status` を使う（schema.md 3） |
+
 ## 採らなかった案
 
 | 案 | 理由 |
@@ -1496,3 +1645,6 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | 時間帯の変更で、変える側の時刻だけを送らせる | 画面が変えた欄を見分ける必要があり、API の入力の形が変わる（rules.md「要件の読み方」。8.32） |
 | 時間帯の変更で、両方とも変えないときに断る | 画面が欄を触らずに決定しただけでエラーになる。機器の名前の変更の `unchanged` と扱いがそろわない（8.32） |
 | 時間帯の変更の記録に、変えた側の時刻だけを入れる | 1件だけでその時点の時間帯がわからない（8.15 の `user_renamed` と同じ。8.32） |
+| 予約の管理の一覧に期生も入れる | MNG-3 が挙げる項目にない。利用者は学籍番号で見分けられる（8.37） |
+| 予約の管理の一覧に `now` を入れる | 出す操作は状態だけで決まり、時刻によらない（8.37） |
+| 管理者による取消・終了のパスを機器の下に置く（`/api/admin/devices/{id}/reservations/{rid}/cancel`） | 基本設計の経路と変わる。予約の番号だけで対象が決まり、機器の番号が要らない（8.38） |
