@@ -38,9 +38,9 @@
 | コード | 要件 | 返す API | 段 | 意味 |
 | --- | --- | --- | --- | --- |
 | `INPUT_BODY` | RSV-27 | 本文を受け取るすべて | 共4 | 本文が JSON のオブジェクトでない、16 KiB を超える（design-values.md）、要る項目がない、項目の型が違う（文字列のはずが数値など） |
-| `INPUT_LOGIN_ID` | ADM-2 | 管理者の作成（保守用） | 1 | 管理者の ID が、そろえた後に形式（auth.md 5）に合わない（rules.md 6.2） |
-| `INPUT_NAME` | USR-5, ADM-2 | 管理者の作成（保守用）、利用者の入力（`POST /api/me`） | 1 | 名前（管理者の表示用の名前を含む）が USR-5 の条件に合わない（rules.md 6.2） |
-| `INPUT_PASSWORD` | SEC-3 | 管理者の作成・パスワードの設定し直し（保守用） | 1 | パスワードが条件（auth.md 5）に合わない（rules.md 6.2） |
+| `INPUT_LOGIN_ID` | ADM-2 | 管理者の作成（保守用の `POST /api/maint/admins`、管理者の画面からの `POST /api/admin/admins`） | 1 | 管理者の ID が、そろえた後に形式（auth.md 5）に合わない（rules.md 6.2） |
+| `INPUT_NAME` | USR-5, ADM-2 | 管理者の作成（保守用・管理者の画面から）、利用者の入力（`POST /api/me`） | 1 | 名前（管理者の表示用の名前を含む）が USR-5 の条件に合わない（rules.md 6.2） |
+| `INPUT_PASSWORD` | SEC-3 | 管理者の作成・パスワードの設定し直し（保守用・管理者の画面から。`…/admins/{id}/reset-password`） | 1 | パスワードが条件（auth.md 5）に合わない（rules.md 6.2） |
 | `INPUT_ROLE` | USR-3 | 利用者の入力、利用者の操作の API（api.md 8.16） | 1 | 生徒か教員か（`role`）が `student`・`teacher` のどちらでもない（rules.md 6.4） |
 | `INPUT_STUDENT_ID` | USR-4 | 利用者の入力、利用者の操作の API | 1 | 学籍番号が、そろえた後に、選んだ側（生徒・教員）の形式に合わない（rules.md 6.4） |
 | `INPUT_COHORT` | USR-6 | 利用者の入力 | 1 | 生徒で、期生がない、数値でない、1以上の整数でない（rules.md 6.4）。教員では返さない（送られても無視する） |
@@ -51,7 +51,7 @@
 
 - `INPUT_COHORT` は、項目の型の誤りも含む。期生は要るかどうかが生徒か教員かで変わるので、共4 の `INPUT_BODY` ではなく段 1 で確かめる（rules.md 6.4）。`role`・`student_id`・`name` の型の誤りは `INPUT_BODY`。
 
-ほかの項目ごとの形式のコードは、機能ごとの設計で足す。確保・予約なしの利用の本文の `device_id` が正の整数でないときは、項目の型の誤りとして `INPUT_BODY` にする（api.md 8.25、8.27）。数値の変更の本文の `key` が3つの数値のどれでもないときも `INPUT_BODY` にする（api.md 8.42）。管理者の画面からの作成・設定し直しも、上の3つを同じ意味で返す（その機能の設計で「返す API」に足す）。
+ほかの項目ごとの形式のコードは、機能ごとの設計で足す。確保・予約なしの利用の本文の `device_id` が正の整数でないときは、項目の型の誤りとして `INPUT_BODY` にする（api.md 8.25、8.27）。数値の変更の本文の `key` が3つの数値のどれでもないときも `INPUT_BODY` にする（api.md 8.42）。管理者の画面からの作成・設定し直し（api.md 8.45・8.46）も、上の3つを保守用の API と同じ意味で返す。
 
 ### 3.2 `AUTH_`（401）
 
@@ -84,7 +84,7 @@
 | コード | 要件 | 返す API | 段 | 意味 |
 | --- | --- | --- | --- | --- |
 | `NOT_FOUND_API` | RSV-27 | すべて | 共1 | そのメソッドとパスの API がない。パスの `{id}` が正の整数の形でないときも含む |
-| `NOT_FOUND_ADMIN` | ADM-2 | パスワードの設定し直し（保守用） | 2 | その番号の管理者がいない、または削除されている（rules.md 6.1） |
+| `NOT_FOUND_ADMIN` | ADM-2 | パスワードの設定し直し（保守用・管理者の画面から）、管理者の削除（`POST /api/admin/admins/{id}/delete`） | 2 | その番号の管理者がいない、または削除されている（rules.md 6.1） |
 | `NOT_FOUND_USER` | USR-3, USR-4 | 利用者の操作の API（api.md 8.16。`POST /api/me` を除く。確保（api.md 8.25）・予約なしの利用（8.27）・自分の予約（8.29）・取消（8.30）・時間帯の変更（8.32）・利用開始（8.34）・利用終了（8.35）で確かめる） | 2 | 送られた識別の組（生徒か教員か・そろえた学籍番号）の利用者がいない（`POST /api/me` をまだしていない）。段 2 の最初に確かめる |
 | `NOT_FOUND_RESERVATION` | RSV-8, RSV-9, RSV-10, RSV-14, RSV-18, MNG-3 | 取消（`POST /api/reservations/{id}/cancel`）、時間帯の変更（`POST /api/reservations/{id}/change`）、利用開始（`POST /api/reservations/{id}/begin`）、利用終了（`POST /api/reservations/{id}/finish`）、管理者による取消・終了（`POST /api/admin/reservations/{id}/cancel`、`…/finish`） | 2 | その番号の予約がない、または送られた識別の組の利用者の予約でない（どちらかを区別しない。rules.md 2、6.12）。`NOT_FOUND_USER` の後に確かめる。管理者の API では本人を確かめず、予約がないときだけ返す（rules.md 6.16） |
 | `NOT_FOUND_DEVICE` | MNG-1, MNG-2, MNG-3, VIW-1, RSV-2 | 機器の名前の変更・削除（`POST /api/admin/devices/{id}/rename`、`…/delete`）、予約の管理の一覧（`GET /api/admin/devices/{id}/reservations`）、予約状況（`GET /api/devices/{id}/day`）、確保（`POST /api/reservations`）、予約なしの利用（`POST /api/walk-ins`） | 2 | その番号の機器がない、または削除されている（rules.md 6.7、6.9 の `checkDeviceActive`） |
@@ -117,7 +117,9 @@
 | `RULE_PAST` | TIM-6, RSV-5, RSV-17, RSV-11 | 確保（`POST /api/reservations`）、予約なしの利用（`POST /api/walk-ins`）、時間帯の変更（`POST /api/reservations/{id}/change`） | 4 | 新たに指定する開始時刻が `nowMin` より前、または終了時刻が `nowMin` 以前。開始と終了を区別しない（rules.md 6.10）。予約なしの利用では終了時刻だけ（rules.md 6.11）。時間帯の変更では変える側の時刻だけ（変えない時刻には当てはめない。TIM-6、rules.md 6.13） |
 | `RULE_START_PASSED` | RSV-11, RSV-10 | 時間帯の変更（`POST /api/reservations/{id}/change`） | 4 | 開始時刻を変えようとしたが、変更前の開始時刻が `nowMin` 以前（ちょうど開始時刻の分を含む）。利用中の予約の開始の変更（RSV-10）、猶予の中の予約済の開始の変更を含む。`RULE_PAST` より先に確かめる（rules.md 6.13） |
 | `RULE_TIME_ORDER` | TIM-7, RSV-5 | 確保（`POST /api/reservations`）、時間帯の変更（`POST /api/reservations/{id}/change`） | 5 | 終了が開始より後でない。時間帯の変更では、変えない側の保存してある時刻と合わせて比べる。利用終了には当てはめない（TIM-7）。予約なしの利用では返さない（開始が `nowMin` なので段 4 を通れば必ず成り立つ。rules.md 6.11） |
-| `RULE_ADMIN_ID_DUPLICATE` | ADM-2, RSV-23 | 管理者の作成（保守用） | 8 | そろえた後の管理者の ID が、ほかの管理者（削除した管理者を含む）の ID と同じ（rules.md 6.1） |
+| `RULE_ADMIN_ID_DUPLICATE` | ADM-2, RSV-23 | 管理者の作成（保守用・管理者の画面から） | 8 | そろえた後の管理者の ID が、ほかの管理者（削除した管理者を含む）の ID と同じ（rules.md 6.1） |
+| `RULE_ADMIN_SELF_RESET` | ADM-2 | パスワードの設定し直し（管理者の画面からの `POST /api/admin/admins/{id}/reset-password`。保守用では返さない） | 8 | 対象が操作した管理者自身。自分のパスワードの変更は10章で除かれており、設定し直しは「他の管理者」が行う（ADM-2。rules.md 6.1、api.md 8.46） |
+| `RULE_ADMIN_LAST` | ADM-2, RSV-23 | 管理者の削除（`POST /api/admin/admins/{id}/delete`） | 8 | 削除していない管理者が対象の1人だけ（最後の1人）。自分自身の削除でも同じ（rules.md 6.1、api.md 8.47） |
 | `RULE_DEVICE_NAME_DUPLICATE` | MNG-1, RSV-23 | 機器の追加・名前の変更 | 8 | 前後の空白を除いた名前が、削除していないほかの機器の名前と完全に一致する（全角・大小はそろえない。rules.md 6.7） |
 | `RULE_DEVICE_IN_USE` | MNG-2, RSV-23 | 機器の削除 | 8 | その機器に利用中の予約がある（自動の変化を反映した後。rules.md 6.7） |
 | `RULE_LENGTH` | RSV-6, RSV-12 | 確保、予約なしの利用、時間帯の変更 | 6 | 時間帯の長さが、`nowMin` の時点の長さの上限を超える（rules.md 6.10、6.11）。時間帯の変更では、上限を超え、かつ変更前の長さより長いとき（RSV-12、rules.md 6.13）。利用開始の前倒しでは使わない（`RULE_BEGIN_LENGTH`） |
@@ -130,6 +132,7 @@
 - `RULE_DEVICE_BUSY` を `RULE_OVERLAP` と分けるのは、利用者が「今は使えない」のか「終了時刻を早めれば使える」のかを見分けられるようにするため（RSV-27）。MNG-2 の `RULE_DEVICE_IN_USE` とも分ける。空いていないのは利用中に限らず、猶予の間の予約済でも空いていない。
 - `RULE_START_PASSED` を `RULE_PAST` と分けるのは、`RULE_PAST` は入力を直せば通るが、`RULE_START_PASSED` はどう入力しても開始を変えられないことを、利用者が見分けられるようにするため（RSV-27。rules.md 6.13）。画面は「開始時刻を過ぎているので、変えられるのは終了時刻だけです」とする（screens.md）。
 - `RULE_BEGIN_LENGTH`・`RULE_BEGIN_OVERLAP` を `RULE_LENGTH`・`RULE_OVERLAP` と分けるのは、確保などでは「時刻を直せば通る」が、利用開始には入力がなく「開始時刻まで待てば始められる」という意味になり、画面がコードだけで文を決められるようにするため。重なりと長さを1つのコードにまとめないのは、どちらで断ったかをテストで確かめるため（RSV-27。rules.md 6.14）。
+- `RULE_ADMIN_SELF_RESET` を `NOT_FOUND_ADMIN` と分けるのは、対象はいるが自分なので断ったことを示し、画面が「ほかの管理者に頼むか、保守用の手順で設定し直してください」と案内できるようにするため。管理者の画面では自分の行に設定し直しのボタンを出さない（screens.md）ので、ふつうは画面からは届かない。
 - `RULE_TIME_ORDER` を `INPUT_` にしないのは、時間帯の変更では保存してある値と比べるので、入力だけでは決まらないため（上の 1）。
 - そのほかの `RULE_` のコード（段 4・6・7・8）は、機能ごとの設計で足す。
 

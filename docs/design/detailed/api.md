@@ -1,6 +1,6 @@
 # API
 
-- 状態：作成中（共通の部分、保守用の API、管理者の認証、共有された情報の設定、利用の開始、利用者の入力、機器、予約状況・確保、予約なしの利用、自分の予約・取消、時間帯の変更、利用開始・利用終了、予約の管理を決定。残りの API の入出力は、機能ごとの設計で足す）
+- 状態：作成中（共通の部分と、screens-and-api.md 5 の一覧のすべての API の入出力を決定。詳細設計のレビューで見直す）
 - 日付：2026-11-19
 - 関係する要件：USR-1〜USR-7, LOG-1〜LOG-4, MNG-1〜MNG-3, VIW-1, RSV-2〜RSV-20, TIM-1〜TIM-7, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
 - 前提：[architecture.md](../basic/architecture.md) 1, 3, 4（Worker は渡すだけ、手順 1〜7）、[screens-and-api.md](../basic/screens-and-api.md) 4〜7（API の一覧、応答の形）、[auth.md](../basic/auth.md) 1, 3, 6, 7（入口の種類、Cookie と Origin、保守用の鍵、試行の制限）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 2, 4（時刻を取る位置、`blockConcurrencyWhile`）、[error-codes.md](error-codes.md)、[schema.md](schema.md) 5（版の適用）
@@ -220,7 +220,7 @@ API を変えるときの決まり：
 | `POST /api/reservations/{id}/begin`、`…/finish` | 利用開始・利用終了（RSV-13〜RSV-16, RSV-18, RSV-19） | 済（8.34〜8.36） |
 | `GET /api/admin/devices/{id}/reservations`、`POST /api/admin/reservations/{id}/cancel`、`…/finish` | 予約の管理（MNG-3） | 済（8.37〜8.40） |
 | `GET /api/admin/settings`、`POST /api/admin/settings` | 数値の変更（RSV-25, RSV-26） | 済（8.41〜8.43） |
-| screens-and-api.md 5 の一覧の残りすべて | rules.md 6 の表の各機能と、利用者の入力・予約状況 | 未 |
+| `GET /api/admin/admins`、`POST /api/admin/admins`、`POST /api/admin/admins/{id}/reset-password`、`…/delete` | 管理者のアカウント（ADM-2） | 済（8.44〜8.48） |
 
 ### 8.1 `POST /api/maint/admins`（管理者の作成。ADM-2）
 
@@ -284,7 +284,7 @@ API を変えるときの決まり：
 
 処理は 8.1 と同じ流れで、次が違う。
 
-- 3 で、store が `{id}` の管理者の行を削除した行も含めて引き、`checkAdminPasswordReset` に渡す（rules.md 6.1）。
+- 3 で、store が `{id}` の管理者の行を削除した行も含めて引き、`checkAdminPasswordReset(行, null)` に渡す（rules.md 6.1。操作する管理者がいないので、自分自身の設定し直しの段 8 で断らない）。
 - 5 で、その行の `password_hash`・`password_salt`・`password_iterations` を上書きし、`password_version` を1増やす。これでその管理者の認証した状態は、すべての端末で直ちに止まる（次の要求から `AUTH_REVOKED`。ADM-2、auth.md 3）。
 
 応答の `data` は 8.1 と同じ（`id`・`login_id`・`display_name`）。
@@ -387,10 +387,10 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 2. 共3：store がハッシュで `admin_sessions` の行を引き、あればその `admin_id` の管理者の行も引く（削除した行も含む）。`checkAdminSession(行, 管理者)` で判定する。Cookie がないときは行を `null` として渡す。
 3. 通ったら、API ごとの関数に、管理者の番号と証明の行の番号を渡す。記録の `actor_admin_id` はこの管理者の番号にする（LOG-4）。
 
-- **期限を延ばす。** 共3 を通った後の応答には、成功でも、後の段で断るとき（`INPUT_`・`RULE_` など）でも、`Set-Cookie: adminCookie(受け取った値)` を付ける（auth.md 3「使うたびに延ばす」）。表には書かない（schema.md 2.8）。例外の 500 には付けない（付けなくても、それまでの期限が残る）。
+- **期限を延ばす。** 共3 を通った後の応答には、成功でも、後の段で断るとき（`INPUT_`・`RULE_` など）でも、`Set-Cookie: adminCookie(受け取った値)` を付ける（auth.md 3「使うたびに延ばす」）。表には書かない（schema.md 2.8）。例外の 500 には付けない（付けなくても、それまでの期限が残る）。`logout`（8.7）の成功と、自分自身の削除（8.47）の成功では、延ばさずに `clearAdminCookie()` を付ける。
 - **共3 で断るときは `Set-Cookie` を付けない。** 画面は `AUTH_REQUIRED`・`AUTH_REVOKED` を受けたら認証の画面に移る。`AUTH_REVOKED` では「パスワードが設定し直されたか、アカウントが削除されたため」と案内できる（error-codes.md 3.2）。
 - **自動の変化は、共3 を通った後に反映する。** 管理者の API はすべて、API ごとの `transactionSync` の最初で反映する（architecture.md 手順 3）。
-- **パスワードの版で止める。** パスワードの設定し直し（8.2 と、管理者の画面からの設定し直し）で版が増えると、その管理者の証明は次の要求から `AUTH_REVOKED` になる。削除も `deleted_at` で同じく止まる（ADM-2「すべての端末で直ちに止める」）。
+- **パスワードの版で止める。** パスワードの設定し直し（8.2 と 8.46）で版が増えると、その管理者の証明は次の要求から `AUTH_REVOKED` になる。削除（8.47）も `deleted_at` で同じく止まる（ADM-2「すべての端末で直ちに止める」）。
 
 ### 8.6 `GET /api/admin/me`（認証の状態。ADM-2）
 
@@ -431,7 +431,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | ADM-2 | `logout` の後、同じ Cookie の値で `me` を呼ぶと `AUTH_REVOKED`。応答に `Max-Age=0` の `Set-Cookie` が付く。同じ管理者のほかの証明は止まらない |
 | ADM-2 | 保守用の API でパスワードを設定し直すと、その管理者のすべての証明が `AUTH_REVOKED` になる。`deleted_at` をテストが入れても同じ。ほかの管理者の証明は止まらない |
 | ADM-2 | Cookie がない、形が違う（42文字など）、表にない値は `AUTH_REQUIRED` |
-| ADM-2 | 共3 を通った管理者の API の応答には、同じ値の `Set-Cookie` が付く（`logout` の成功を除く）。共3 で断る応答には付かない |
+| ADM-2 | 共3 を通った管理者の API の応答には、同じ値の `Set-Cookie` が付く（`logout` の成功と自分自身の削除の成功を除く。8.48）。共3 で断る応答には付かない |
 | SEC-3 | 失敗すると `auth_failures` の `entry = 'admin_login'` の行が1増え、ID がないなら `unknown_id_failures`、パスワードが違えば `wrong_password_failures` が増える。`last_login_id` はそろえた ID、形式に合わなければ `'(invalid)'` |
 | SEC-3 | 10回失敗した後は、正しい ID とパスワードでも `LIMIT_ATTEMPTS`（429）で、行が変わらない。別の IP は止まらない。次の10分の区切りでは通る。成功しても失敗の数は戻らない |
 | SEC-3 | 上限を超えた相手には、本文が壊れていても `LIMIT_ATTEMPTS`（上限が先）。上限の前なら、本文が壊れていると `INPUT_BODY` で、失敗は増えない |
@@ -1686,6 +1686,142 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | RSV-23 | 2人の管理者が同じ数値を同時に変えると、両方とも成功し、`settings` に2行、`events` に2行。後の記録の `before` が先の値 |
 | RSV-21 | GET でも、反映した自動の変化が残る |
 
+### 8.44 `GET /api/admin/admins`（管理者の一覧。ADM-2）
+
+管理者の画面の「管理者」で、一覧と、削除・パスワードの設定し直しの対象を選ぶのに使う。経路の表では、認証の種類は「管理者」、包むかは「包まない」。
+
+処理：準備（8.5 の 1）→ `clock()` → 共3（8.5 の 2）→ `transactionSync` の中で自動の変化を反映し、store が削除していない管理者を番号の順に引く → 成功を返す（`Set-Cookie` で期限を延ばす。8.5）。
+
+応答の `data`：
+
+| 項目 | 内容 |
+| --- | --- |
+| `admins` | 削除していない管理者の配列。番号の順（作った順）。1つは `{ id, login_id, display_name }` |
+
+- 削除した管理者は出さない。削除した管理者の ID と名前は、記録（`admin_deleted`）と `admins` の行に残る（LOG-2）。8.18 の機器の一覧と同じ扱い。
+- 自分の行の印は入れない。画面は `GET /api/admin/me` の `id` と比べて見分ける。
+- 作った日時・パスワードの版は返さない。ADM-2 の一覧に要る項目ではない。
+- 認証が通っている間は自分が必ずいるので、空の配列になることはない。
+
+返しうるコード（確かめる順）：`NOT_FOUND_API` → `AUTH_REQUIRED` → `AUTH_REVOKED`。`GET` なので `Origin` と本文は確かめない。
+
+記録：読むだけなので書かない。反映した自動の変化は記録する（logging.md 2）。
+
+### 8.45 `POST /api/admin/admins`（管理者の作成。ADM-2, LOG-4）
+
+管理者が、管理者の画面から別の管理者のアカウントを作る。経路の表では、認証の種類は「管理者」、包むかは「包む」（PBKDF2 を使うため。time-and-concurrency.md 4）。
+
+要求の本文：8.1 と同じ（`login_id`・`display_name`・`password`）。
+
+処理（すべて `blockConcurrencyWhile` の中。例外は中で受け止めて 500 にする）：
+
+1. 準備：本文を読む。管理者の Cookie の値のハッシュを求める（8.5 の 1）。新しいソルト（ランダムな16バイト）を作る。
+2. `clock()` で現在時刻を取る。
+3. 同期で確かめる。共2（`Origin`）→ 共3（8.5 の 2）→ 共4（本文が JSON のオブジェクトで、3つの項目がどれも文字列であること）→ 段 1（`validateLoginId` → `validateName` → `validatePassword`。rules.md 6.2）→ store がそろえた ID で管理者の行を削除した行も含めて引き、`checkAdminCreate`（rules.md 6.1）。
+4. すべて通ったときだけ、PBKDF2 を計算する（`await`。8.1 の 4 と同じ）。
+5. `transactionSync` の中で、自動の変化を反映し、`admins` に1行足し（8.1 の 5 と同じ値）、記録を書く。
+6. 成功を返す（`Set-Cookie` で期限を延ばす。8.5）。
+
+- **8.1 と同じ判定・同じ値で作る。** 違うのは、認証が管理者の証明であること（試行の上限はない）と、記録の `actor_kind` だけ。作った管理者は、作った管理者と同じ権限を持つ（管理者に種類はない。ADM-1）。
+- **断るときは何も書かない。** 自動の変化も反映しない。段 8 の判定は PBKDF2 の前に行い（断る要求に計算しないため）、反映は PBKDF2 の後の `transactionSync` で行うので、8.19 と違い、段 8 で断っても反映しない。管理者の行の判定は予約の状態によらず、応答に予約の情報を含まないので、次の要求で反映されれば足りる（RSV-21。8.1 と同じ）。
+- **ほぼ同時の操作（RSV-23）。** 3 から 5 まで包んだ中で割り込まれないので、同じ ID の作成が、管理者の画面からと保守用の API からほぼ同時に届いても、後の要求は 3 で `RULE_ADMIN_ID_DUPLICATE` になる。作成した管理者の削除（8.47）が、作成の 3 と 5 の間に割り込むこともない。
+- **作成した管理者の証明は作らない。** 作った側の管理者の認証した状態はそのまま。作られた管理者は、自分で ID とパスワードを入れて認証する（8.4）。
+
+応答の `data`：8.1 と同じ（`id`・`login_id`・`display_name`）。パスワードとハッシュは返さない。
+
+返しうるコード（確かめる順）：
+
+| 順 | コード | 段 |
+| --- | --- | --- |
+| 1 | `NOT_FOUND_API` | 共1 |
+| 2 | `AUTH_ORIGIN` | 共2 |
+| 3 | `AUTH_REQUIRED`・`AUTH_REVOKED` | 共3 |
+| 4 | `INPUT_BODY` | 共4 |
+| 5 | `INPUT_LOGIN_ID` | 1 |
+| 6 | `INPUT_NAME` | 1 |
+| 7 | `INPUT_PASSWORD` | 1 |
+| 8 | `RULE_ADMIN_ID_DUPLICATE` | 8 |
+
+記録（`events`。LOG-4）：`at` は 2 の時刻、`actor_kind = 'admin'`、`actor_admin_id` は操作した管理者の番号、`kind = 'admin_created'`、`admin_id` は作った管理者の番号、ほかの番号の列は `NULL`、`detail` は `{"login_id": …, "display_name": …}`（8.1 と同じ形）。パスワード・ハッシュ・ソルトは入れない（SEC-4, LOG-4）。
+
+### 8.46 `POST /api/admin/admins/{id}/reset-password`（パスワードの設定し直し。ADM-2, LOG-4）
+
+管理者が、パスワードを忘れたほかの管理者のパスワードを設定し直す。ID は変わらない。経路の表では、認証の種類は「管理者」、包むかは「包む」。
+
+要求の本文：8.2 と同じ（`password`）。
+
+処理は 8.45 と同じ流れで、次が違う。
+
+- 3 の段 1 は `validatePassword` だけ。その後、store が `{id}` の管理者の行を削除した行も含めて引き、`checkAdminPasswordReset(行, 操作した管理者の番号)` に渡す（rules.md 6.1）。
+- 5 は 8.2 の 5 と同じ（ハッシュ・ソルト・反復回数を上書きし、`password_version` を1増やす）。これで対象の管理者の認証した状態は、すべての端末で直ちに止まる（次の要求から `AUTH_REVOKED`。ADM-2、auth.md 3）。
+
+決めたことと理由：
+
+- **自分自身のパスワードは設定し直せない（`RULE_ADMIN_SELF_RESET`）。** ADM-2 は設定し直しを「他の管理者が設定し直せる」とし、「v0.1.0 には、管理者が自分のパスワード…を変更する機能がない」を承知のうえの制約としている。自分を対象に認めると、10章で除かれている「管理者自身のパスワードの変更」が、今のパスワードを確かめない形で入ることになる（2026-11-19 に開発者が決定）。自分のパスワードを戻したいときは、ほかの管理者に頼むか、保守用の API（8.2）を使う。保守用の API にはこの制限はない（操作する管理者がいない）。
+- **ほぼ同時の操作（RSV-23）。** 包んだ中で割り込まれないので、対象の管理者の削除（8.47）が、3 の判定と 5 の書き込みの間に入ることはない。削除が先なら 3 で `NOT_FOUND_ADMIN` になる。
+
+応答の `data`：8.1 と同じ（`id`・`login_id`・`display_name`。対象の管理者の値）。
+
+返しうるコード（確かめる順）：`NOT_FOUND_API`（`{id}` が正の整数の形でないときも）→ `AUTH_ORIGIN` → `AUTH_REQUIRED`・`AUTH_REVOKED` → `INPUT_BODY` → `INPUT_PASSWORD`（段 1）→ `NOT_FOUND_ADMIN`（段 2。いない、または削除済み）→ `RULE_ADMIN_SELF_RESET`（段 8）。
+
+記録：8.45 と同じ形で、`kind = 'admin_password_reset'`、`admin_id` は対象の管理者、`detail` は `{"login_id": …, "display_name": …}`（対象の管理者の値）。
+
+### 8.47 `POST /api/admin/admins/{id}/delete`（管理者の削除。ADM-2, LOG-2, LOG-4）
+
+経路の表では、認証の種類は「管理者」、包むかは「包まない」（PBKDF2 を使わない）。
+
+要求の本文：項目なし。画面は `{}` を送る（8.7 と同じ）。
+
+処理：
+
+1. 準備：本文を読む。管理者の Cookie の値のハッシュを求める。
+2. `clock()` で現在時刻を取る。
+3. 共2 → 共3 → 共4。段 1 に当たるものはない。
+4. `transactionSync` の中で：
+   1. 自動の変化を反映する。
+   2. store が `{id}` の管理者の行を削除した行も含めて引き（なければ `null`）、削除していない管理者を全件引く。
+   3. `checkAdminDelete(行, 削除していない管理者の一覧)`（rules.md 6.1）。断られたら、そのコードを返す（反映した自動の変化は残る。8.19 と同じ）。
+   4. その行の `deleted_at` に 2 の時刻を書き、記録を書く。
+5. 成功を返す。対象が操作した管理者自身なら `Set-Cookie: clearAdminCookie()`、そうでなければ `Set-Cookie: adminCookie(受け取った値)`（期限を延ばす。8.5）。
+
+決めたことと理由：
+
+- **自分自身も削除できる（ADM-2）。** 最後の1人でなければ断らない。削除した管理者は、その端末も含めてすべての端末で次の要求から `AUTH_REVOKED` になる。成功の応答で端末の Cookie を消す（8.7 の `logout` と同じ）。消さなくても止まっているが、使えない Cookie を延ばして渡し直さないため。画面は認証の画面に移る（screens.md に回す）。
+- **最後の1人は削除できない（`RULE_ADMIN_LAST`）。** 削除していない管理者が対象1人だけなら断る。管理者が0人になると、保守用の API でしか戻せなくなる（ADM-2）。
+- **認証した状態を止める仕組みを別に持たない。** `deleted_at` が入ると `checkAdminSession` が `AUTH_REVOKED` を返す（rules.md 6.3、auth.md 3）。`admin_sessions` の行は書き換えない。
+- **ほぼ同時の削除（RSV-23）。** 3 の後から 4 の終わりまでに `await` がないので、残り2人を2人の管理者がほぼ同時に削除しても、後の要求は先の削除を見て `RULE_ADMIN_LAST` になる。2人が互いを、または自分自身を同時に削除しても同じ。後の要求を送った管理者がすでに削除されていれば、共3 で `AUTH_REVOKED` になる。包む操作（8.45・8.46・8.1・8.2）とは、`blockConcurrencyWhile` の間はほかの要求が届かないので、間に入らない。
+- **ID は再び使えない。** 行を消さず `deleted_at` を入れるだけなので、`login_id` の `UNIQUE` と `checkAdminCreate` が削除した ID も断る（ADM-2、LOG-2）。
+- **時刻は秒を切り捨てない（TIM-5）。** `deleted_at` と記録の `at` は 2 の時刻のまま。
+- **削除した管理者の過去の記録は変えない。** `events.actor_admin_id` は削除した管理者の行を指したまま残る（LOG-2）。
+
+応答の `data`：8.1 と同じ（`id`・`login_id`・`display_name`。削除した管理者の値）。
+
+返しうるコード（確かめる順）：`NOT_FOUND_API`（`{id}` が正の整数の形でないときも）→ `AUTH_ORIGIN` → `AUTH_REQUIRED`・`AUTH_REVOKED` → `INPUT_BODY` → `NOT_FOUND_ADMIN`（段 2。いない、またはすでに削除済み）→ `RULE_ADMIN_LAST`（段 8）。
+
+記録（`events`。LOG-2, LOG-4）：8.45 と同じ形で、`kind = 'admin_deleted'`、`admin_id` は削除した管理者、`detail` は `{"login_id": …, "display_name": …}`（削除した管理者の値）。自分自身を削除したときは、`actor_admin_id` と `admin_id` が同じ番号になる。
+
+### 8.48 台帳の層のテストの観点（管理者のアカウント）
+
+| ID | 確かめること |
+| --- | --- |
+| ADM-2 | 管理者の画面から作成すると `admins` に1行でき（版 1、反復回数 100,000、ID はそろえた値、名前は前後の空白を除いた値）、応答の `data` がその値になる。作った管理者の ID とパスワードで認証できる。作った側の証明はそのまま使える |
+| ADM-2 | 一覧に削除していない管理者だけが番号の順に出る。削除した管理者は出ない |
+| ADM-2 | 削除した管理者の ID（全角・大文字で送ったものを含む）での作成は `RULE_ADMIN_ID_DUPLICATE`（409）で、行が増えない |
+| ADM-2 | ID・名前・パスワードの形式の誤りは、それぞれ `INPUT_LOGIN_ID`・`INPUT_NAME`・`INPUT_PASSWORD`（400）。複数に誤りがあれば ID → 名前 → パスワードの順で最初のもの |
+| ADM-2 | ほかの管理者のパスワードを設定し直すと版が1増え、ハッシュとソルトが変わる。新しいパスワードで認証でき、古いパスワードでは `AUTH_ADMIN_FAILED`。対象の管理者の証明はすべて `AUTH_REVOKED` になり、操作した管理者とほかの管理者の証明は止まらない |
+| ADM-2 | 自分自身のパスワードの設定し直しは `RULE_ADMIN_SELF_RESET`（409）で、版もハッシュも変わらず、自分の証明も止まらない。保守用の API（8.2）では同じ管理者を設定し直せる |
+| ADM-2 | ない番号・削除した管理者への設定し直しと削除は `NOT_FOUND_ADMIN`（404）。`{id}` が `0`・`01`・`abc` なら `NOT_FOUND_API` |
+| ADM-2 | ほかの管理者を削除すると `deleted_at` が入り（秒を切り捨てない時刻）、行は残る。削除した管理者の証明はすべて `AUTH_REVOKED`、その ID とパスワードでの認証は `AUTH_ADMIN_FAILED`。応答には期限を延ばす `Set-Cookie` が付く |
+| ADM-2 | 自分自身を削除すると成功し、応答に `Max-Age=0` の `Set-Cookie` が付く。同じ値の Cookie と、自分のほかの端末の証明で呼ぶと `AUTH_REVOKED` |
+| ADM-2 | 管理者が1人のとき、その管理者の自分自身の削除は `RULE_ADMIN_LAST`（409）で、`deleted_at` が入らず、`events` が増えない（反映した自動の変化の記録を除く）。2人のうち1人を削除した後、残った1人の削除も `RULE_ADMIN_LAST` |
+| RSV-23 | 管理者が2人のとき、2人がそれぞれ相手を削除する要求をほぼ同時に送ると、1つは成功し、もう1つは `AUTH_REVOKED`（先に削除された側）。削除していない管理者は必ず1人以上残る。2人が同時に自分自身を削除しても、1つは成功し、もう1つは `RULE_ADMIN_LAST` |
+| RSV-23 | 同じ ID の作成を、管理者の画面と保守用の API からほぼ同時に送ると、片方が成功し、もう片方が `RULE_ADMIN_ID_DUPLICATE` |
+| LOG-4 | 作成・設定し直し・削除の記録に、`actor_kind = 'admin'`、`actor_admin_id`（操作した管理者）、`admin_id`（対象）が入り、`detail` は `login_id`・`display_name` だけ。自分自身の削除では `actor_admin_id` と `admin_id` が同じ。`events` のどの列にも、パスワード・ハッシュ・ソルトが入っていない |
+| ADM-1 | 4つの API とも、利用者の Cookie だけでは `AUTH_REQUIRED` |
+| API | 作成・設定し直し・削除で `Origin` がないと `AUTH_ORIGIN`。証明が有効で本文が壊れていると `INPUT_BODY`。本文の項目がない、文字列でないときも `INPUT_BODY`。一覧（`GET`）は `Origin` を確かめない |
+| API | PBKDF2 は、作成・設定し直しで断る要求（`INPUT_*`、`NOT_FOUND_ADMIN`、`RULE_ADMIN_ID_DUPLICATE`、`RULE_ADMIN_SELF_RESET`、共1〜共4）では呼ばれない（テストで計算の関数を差し替えて数える） |
+| RSV-21 | 開始時刻＋猶予を過ぎた予約済の予約がある台帳で、一覧・作成の成功・削除の成功・`RULE_ADMIN_LAST` で断った削除を呼ぶと無断不使用になる。作成・設定し直しを段 1・段 2・段 8 で断ったときは変わらない |
+
 ## 採らなかった案
 
 | 案 | 理由 |
@@ -1745,3 +1881,9 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | 数値の変更で、3つの数値をまとめて送る | 古い画面から送ると、ほかの管理者が直前に変えた値を戻してしまう。1つでも誤りがあったときの扱いが増える（8.42） |
 | 数値の変更で、`key` の誤りに専用のコードを付ける | `key` は画面が固定の値を送るもので、利用者が入力しない（8.42） |
 | 数値の現在の値の応答に、有効になった時刻や履歴を入れる | 要件の画面は現在の値と変更だけ（8.41） |
+| 管理者の画面から、自分自身のパスワードも設定し直せるようにする | 10章で除かれている「管理者自身のパスワードの変更」が、今のパスワードを確かめない形で入る。ADM-2 は「他の管理者が設定し直せる」としている（8.46。2026-11-19 に開発者が決定） |
+| 管理者の一覧に、削除した管理者も出す | 要件にない。削除した管理者は記録と行に残る（8.44。機器の一覧 8.18 と同じ） |
+| 管理者の一覧に、自分の行の印を入れる | 画面が `GET /api/admin/me` の `id` と比べれば足りる（8.44） |
+| 管理者の削除で、その管理者の `admin_sessions` の行に `ended_at` を入れる | `deleted_at` で止まる（auth.md 3）。認証を解いた時刻と削除で止まったことが区別できなくなる（8.47） |
+| 自分自身の削除の成功でも、Cookie の期限を延ばす | 使えなくなった Cookie を渡し直すことになる。`logout` と同じく消す（8.47） |
+| 管理者の作成・設定し直しの段 8 の判定を、PBKDF2 の後の `transactionSync` の中で自動の変化の反映の後に行う | 断る要求にも PBKDF2 を計算することになる。判定は予約の状態によらない（8.45） |

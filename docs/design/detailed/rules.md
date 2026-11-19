@@ -1,6 +1,6 @@
 # ルールの判定
 
-- 状態：作成中（枠組みを決定。ルールごとの節は、機能ごとの設計で足す。6.16 まで決定）
+- 状態：作成中（枠組みと、6 の表のすべての操作を決定。詳細設計のレビューで見直す）
 - 日付：2026-11-19
 - 関係する要件：RSV-1〜RSV-27, TIM-1〜TIM-7, MNG-1〜MNG-3, ADM-2, USR-3〜USR-7, SEC-3, NFR-4
 - 前提：[architecture.md](../basic/architecture.md)（手順 1〜7、`rules/` は純粋な関数）、[time-and-concurrency.md](../basic/time-and-concurrency.md)（`nowMin`、自動の変化の反映）、[domain-model.md](../basic/domain-model.md)（状態の移り方、数値の履歴）、[screens-and-api.md](../basic/screens-and-api.md) 7（コードは1つだけ返す）
@@ -141,8 +141,8 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 利用終了 | RSV-18 | 済（6.15。api.md 8.35） |
 | 管理者による取消・終了（と、その対象を選ぶ機器ごとの一覧） | MNG-3 | 済（6.16。api.md 8.37〜8.39） |
 | 機器の追加・名前の変更・削除 | MNG-1, MNG-2 | 済（名前の検証は 6.6、判定は 6.7。api.md 8.18〜8.23） |
-| 管理者の作成・パスワードの設定し直し | ADM-2 | 済（6.1。保守用の API の設計で決めた。管理者の画面からの操作も同じ関数を使う） |
-| 管理者の削除 | ADM-2 | 未 |
+| 管理者の作成・パスワードの設定し直し | ADM-2 | 済（6.1。保守用の API の設計で決め、管理者の画面からの操作も同じ関数を使う。api.md 8.1・8.2・8.45・8.46） |
+| 管理者の削除 | ADM-2 | 済（6.1。api.md 8.47） |
 | 数値の変更 | RSV-25, RSV-26 | 済（6.17。api.md 8.41〜8.43） |
 | 管理者の入力の検証（`lib/`） | ADM-2, USR-5, SEC-3 | 済（6.2） |
 | 利用者の入力の検証（`lib/`） | USR-3〜USR-6 | 済（名前 USR-5 と全角・大小のそろえ方は 6.2、生徒か教員か・学籍番号・期生は 6.4） |
@@ -151,15 +151,22 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 利用の開始・利用者の証明 | USR-2, ADM-3, SEC-3 | 済（6.3 の `checkSharedInfo`・`checkUserSession`・`userCookie`。api.md 8.11〜8.13） |
 | 共有された情報の設定・変更 | ADM-3 | 済（判定なし。管理者の証明（6.3 の `checkAdminSession`）を通れば必ず受け付けるので、関数を作らない。値は 6.3 の `newToken`。api.md 8.9） |
 
-### 6.1 管理者の作成・パスワードの設定し直し（`src/rules/admins.js`。ADM-2）
+### 6.1 管理者の作成・パスワードの設定し直し・削除（`src/rules/admins.js`。ADM-2）
 
 | 関数 | 引数 | 段 | 確かめること | コード |
 | --- | --- | --- | --- | --- |
 | `checkAdminCreate(sameIdAdmin)` | store が、そろえた後の ID で引いた管理者の行（削除した行も含む）。なければ `null` | 8 | `null` でなければ断る（ADM-2「削除したアカウントの ID は再び使えない」） | `RULE_ADMIN_ID_DUPLICATE` |
-| `checkAdminPasswordReset(admin)` | store が番号で引いた管理者の行（削除した行も含む）。なければ `null` | 2 | `null`、または `deleted_at` が `NULL` でなければ断る | `NOT_FOUND_ADMIN` |
+| `checkAdminPasswordReset(admin, actorAdminId)` | `admin`：store が番号で引いた管理者の行（削除した行も含む）。なければ `null`。`actorAdminId`：操作した管理者の番号。保守用の API（api.md 8.2）は `null` を渡す | 2 | `null`、または `deleted_at` が `NULL` でなければ断る | `NOT_FOUND_ADMIN` |
+| | | 8 | `actorAdminId` が `admin.id` と同じなら断る（自分自身の設定し直し） | `RULE_ADMIN_SELF_RESET` |
+| `checkAdminDelete(admin, activeAdmins)` | `admin`：`checkAdminPasswordReset` と同じ。`activeAdmins`：store が引いた、削除していない管理者の全件 | 2 | `checkAdminPasswordReset` の段 2 と同じ | `NOT_FOUND_ADMIN` |
+| | | 8 | `activeAdmins` が1件以下なら断る（最後の1人） | `RULE_ADMIN_LAST` |
 
-- どちらも受け付けるときは `{ ok: true }` だけを返す（1.1 の「ルールで決まる値」はない）。
-- 段 1（入力の形式）は `api/` が 6.2 の関数で先に確かめる。作成では段 2〜7 に当たるものがない。設定し直しでは段 3〜8 に当たるものがない。
+- どれも受け付けるときは `{ ok: true }` だけを返す（1.1 の「ルールで決まる値」はない）。
+- 段 1（入力の形式）は `api/` が 6.2 の関数で先に確かめる。作成では段 2〜7 に当たるものがない。設定し直し・削除では段 3〜7 に当たるものがない。
+- **自分自身のパスワードは設定し直せない。** ADM-2 は「他の管理者が設定し直せる」とし、自分のパスワードを変える機能は10章で除かれている（api.md 8.46。2026-11-19 に開発者が決定）。保守用の API は `actorAdminId` に `null` を渡すので、この段 8 で断らない。段 8 に置くのは、段 3〜7 に当たらず、対象がいることを確かめた後にするため。
+- **自分自身は削除できる（ADM-2）。** `checkAdminDelete` は操作した管理者を受け取らない。
+- **最後の1人の数え方は rules が持つ（3）。** store は削除していない管理者を全件渡し（数人なので小さい）、件数を SQL で数えない。段 2 を通った `admin` は削除していないので必ず `activeAdmins` に入っており、1件以下なら対象が最後の1人。
+- 同時の削除（RSV-23）は、判定から書き込みまでの間に `await` がないので割り込まれない（api.md 8.47）。
 - 重なりを段 8 に置くのは、ほかの人の行しだいで変わるものを最後にする考え方（4）による。
 - `admins.login_id` の `UNIQUE`（schema.md 2.5）は最後の守り。判定とコードはこの関数が持つ（3）。
 - 同時に同じ ID で作ったとき（RSV-23）は、処理全体が `blockConcurrencyWhile` の中なので、後の方がこの関数で断られる（api.md 8.1）。
@@ -169,7 +176,8 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | ID | 受け付ける | 断る |
 | --- | --- | --- |
 | ADM-2（作成） | 同じ ID の行がない | 同じ ID の行がある。その行が削除済みでも断る |
-| ADM-2（設定し直し） | 削除していない管理者 | `null`、削除済みの管理者 |
+| ADM-2（設定し直し） | 削除していない管理者で、`actorAdminId` が別の番号。`actorAdminId` が `null`（保守用） | `null`、削除済みの管理者（`NOT_FOUND_ADMIN`）、`actorAdminId` が対象と同じ（`RULE_ADMIN_SELF_RESET`）。削除済みで `actorAdminId` も同じなら `NOT_FOUND_ADMIN`（段 2 が先） |
+| ADM-2（削除） | `activeAdmins` が2件で、対象がその1件（自分自身でも同じ） | `null`、削除済みの管理者（`NOT_FOUND_ADMIN`）、`activeAdmins` が対象の1件だけ（`RULE_ADMIN_LAST`）。削除済みで `activeAdmins` が1件なら `NOT_FOUND_ADMIN` |
 
 ### 6.2 管理者の入力の検証（`src/lib/`）
 
