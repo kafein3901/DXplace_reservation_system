@@ -143,7 +143,7 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 機器の追加・名前の変更・削除 | MNG-1, MNG-2 | 済（名前の検証は 6.6、判定は 6.7。api.md 8.18〜8.23） |
 | 管理者の作成・パスワードの設定し直し | ADM-2 | 済（6.1。保守用の API の設計で決めた。管理者の画面からの操作も同じ関数を使う） |
 | 管理者の削除 | ADM-2 | 未 |
-| 数値の変更 | RSV-25 | 未 |
+| 数値の変更 | RSV-25, RSV-26 | 済（6.17。api.md 8.41〜8.43） |
 | 管理者の入力の検証（`lib/`） | ADM-2, USR-5, SEC-3 | 済（6.2） |
 | 利用者の入力の検証（`lib/`） | USR-3〜USR-6 | 済（名前 USR-5 と全角・大小のそろえ方は 6.2、生徒か教員か・学籍番号・期生は 6.4） |
 | 利用者の入力（作る・置き換える・変わらない） | USR-7 | 済（6.5。api.md 8.15） |
@@ -756,6 +756,47 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | MNG-3, TIM-4（`checkAdminFinish`） | 利用中 [9:00, 11:00) → `end` は 10:00。予約なしの利用で始めたもの（`walk_in = 1`）も同じ | `null`（`NOT_FOUND_RESERVATION`）。予約済・取消・無断不使用・終了・管理者による取消・管理者による終了（`STATE_NOT_IN_USE`） |
 | TIM-7（`checkAdminFinish`） | 利用中 [10:00, 11:00)（同じ分に始めた）→ `end` は 10:00（長さ0） | ― |
 
+### 6.17 数値の変更（`src/lib/`・`src/rules/settings.js`。RSV-25, RSV-26）
+
+数値の項目の一覧（`max_count`・`grace_minutes`・`max_length_minutes`。schema.md 2.4）は `src/rules/settings.js` に定数 `SETTING_KEYS` として1か所に置き、`api/` の共4（`key` が一覧のどれかか）と store が使う。
+
+段 1（`src/lib/`。1.2 の形）：
+
+| 関数 | 手順 | `value` | コード |
+| --- | --- | --- | --- |
+| `validateSettingValue(key, v)` | (1) `Number.isSafeInteger(v)` が真で、1以上か確かめる。(2) `key` が `grace_minutes`・`max_length_minutes`（分）なら、さらに `Number.isSafeInteger(v * 60000)` が真か確かめる | `v` | `INPUT_SETTING_VALUE` |
+
+- **条件は要件の「1以上の整数」だけで、実用上の上限は置かない（RSV-25 の表）。** 上限を置くと要件にない条件になる。
+- **計算が正しく行える範囲を事実上の上限にする。** 件数は `Number.isSafeInteger` の範囲（6.4 の期生と同じ考え方）。分の2つは、ミリ秒に直して時刻に足す（5.1、6.10）ので、ミリ秒にしても正確に扱える範囲に限る。design-values.md には足さない（要件で「設計で定める」とされた値ではない）。
+- `v` が数値でないとき（文字列、`null`、ない）は、この関数より前の共4 で `INPUT_BODY` にする（api.md 8.42）。小数・0・負の数・範囲を超える数は、ここで `INPUT_SETTING_VALUE`。
+
+操作ごとの関数（`src/rules/settings.js`）：
+
+| 関数 | 引数 |
+| --- | --- |
+| `currentSettings(settings, nowMin)` | `settings`：数値の履歴の全件（3.1） |
+| `decideSettingChange({ settings, key, value, nowMin })` | `settings`：同じ。`key`：`SETTING_KEYS` のどれか（共4 で確かめ済み）。`value`：段 1 を通った値 |
+
+- `currentSettings` は `{ max_count, grace_minutes, max_length_minutes }` を返す。それぞれ `settingAt(settings, key, nowMin)`。判定はなく、`{ ok }` の形にしない（GET の応答を組むためだけの関数）。
+- `decideSettingChange` は段 2〜8 に当たる判定がなく、断らない。`{ ok: true, action, before }` を返す。`before` は `settingAt(settings, key, nowMin)`、`action` は `before === value` なら `unchanged`、違えば `change`。
+
+決めたことと理由：
+
+- **有効になる時刻は `nowMin`（RSV-26）。** `api/` は `change` のとき `effective_at = nowMin` の行を足す（api.md 8.42）。変更の前に自動の変化を反映するので、`nowMin` 以下に起きる変化は前の値で確定している（RSV-22「同じ時刻では自動の変化が先」）。
+- **猶予の変更が効くのは、開始時刻が `nowMin` 以降の予約だけ（RSV-26）。** 猶予は開始時刻の時点の値で引く（3.1）ので、開始を過ぎた予約は前の値のまま、開始が `nowMin` ちょうどの予約は変更後の値になる（`settingAt` が「以下」で引く）。このための処理は足さない。
+- **確保済みの予約には手を付けない（RSV-25）。** 件数・長さの上限を下げても、すでに確保した予約は取り消さず、上限を超えていても残る。利用開始は前倒しのときだけ長さを確かめ（6.14）、時間帯の変更は RSV-12 で緩める（6.13）ので、確保済みの予約はそのまま使える。下げた後の件数を超えている利用者は、件数が減るまで新しく確保できない（6.10 の段 7）。
+- **同じ値への変更は `unchanged`。** 行も記録も足さない（6.5・6.7 の `unchanged` と同じ）。
+- **同じ分の中で2回変えたとき。** `effective_at` が同じ行が2つでき、番号の大きい行が勝つ（3.1）。その分の中で前の行が効いた変化はない（猶予の終わりは開始時刻より後。5.2）ので、食い違わない。記録には2回とも残る。
+
+テストの観点：
+
+| ID | 受け付ける | 断る |
+| --- | --- | --- |
+| RSV-25（`validateSettingValue`、部品の層） | 1、3、`Number.MAX_SAFE_INTEGER`（`max_count`）、`Math.floor(Number.MAX_SAFE_INTEGER / 60000)`（分の2つ） | 0、−1、1.5、`NaN`、`Infinity`、`Number.MAX_SAFE_INTEGER + 1`（`max_count`）、`Math.floor(Number.MAX_SAFE_INTEGER / 60000) + 1`（分の2つ）。どれも `INPUT_SETTING_VALUE` |
+| RSV-25（`currentSettings`） | 初期データの3行だけなら 3・15・1440。変更の行があれば、`nowMin` の時点の値 | ― |
+| RSV-25（`decideSettingChange`） | 違う値は `change` で `before` は今の値。同じ値は `unchanged` | ―（断らない） |
+| RSV-26（`decideSettingChange`） | `effective_at` がちょうど `nowMin` の行があれば、その値を `before` にする。同じ `effective_at` の行が2つなら、番号の大きい行の値 | ― |
+
 ## 7. 共通のテストの観点
 
 | 対象 | 観点 |
@@ -803,6 +844,8 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 利用終了で段 4（終了時刻を過ぎていないか）を確かめる | 反映した後には、終了時刻が `nowMin` 以下の利用中は残っていない。断る場合をテストで作れない（6.15） |
 | 管理者による取消・終了の状態の誤りに、新しいコード（`STATE_ADMIN_*` など）を使う | 利用者の操作と意味が同じで、コードが増えるだけ（6.16） |
 | 管理者による取消・終了を、利用者の `checkCancel`・`checkFinish` に「管理者なら段 2 を飛ばす」引数を足して兼ねる | 本人の確かめの有無が引数の値しだいになり、テストで両方の組み合わせを確かめることになる。関数が短いので分けたほうが読みやすい（6.16） |
+| 数値に実用上の上限（猶予は1440分までなど）を置く | 要件の条件は「1以上の整数」だけで、要件にない条件になる（6.17） |
+| 数値の値の型の誤り（文字列など）も `INPUT_SETTING_VALUE` にする | 値はどの項目でも必ず数値で、型の誤りは `INPUT_BODY` という決まり（error-codes.md 3.1）とそろえる。期生は要るかどうかが変わるので例外にした（6.4）が、ここでは当たらない（6.17） |
 
 ## 要件の読み方（確認済み）
 

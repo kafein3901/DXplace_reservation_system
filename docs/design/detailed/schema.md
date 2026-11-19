@@ -232,7 +232,7 @@ CREATE INDEX events_user_at ON events (user_id, at);
 | `user_created` | 利用者を作った | 利用者 | `name`、`cohort` |
 | `user_renamed` | 名前・期生を置き換えた（USR-7） | 利用者 | `before`・`after` に、それぞれ `name`・`cohort`（片方だけ変わっても両方。api.md 8.15） |
 | `device_created`・`device_renamed`・`device_deleted` | 機器の追加・名前の変更・削除 | 機器 | 追加・削除は `name`。名前の変更は `before`・`after` に、それぞれ `name`（api.md 8.19〜8.21） |
-| `setting_changed` | 数値の変更（RSV-25） | なし | `key`、前後の `value`、`effective_at` |
+| `setting_changed` | 数値の変更（RSV-25） | なし | `key`、`before`・`after` に前後の `value`、`effective_at`（同じ値への変更は書かない。api.md 8.42） |
 | `admin_created`・`admin_deleted`・`admin_password_reset` | 管理者のアカウント | 管理者 | `login_id`、`display_name`。パスワードは入れない |
 | `shared_info_set` | 共有された情報の設定・変更（ADM-3） | なし | `version`（新しい `shared_infos.id`）。値もハッシュも入れない |
 | `admin_login`・`admin_logout` | 管理者の認証の成功、認証を解いた | 管理者 | `ip` |

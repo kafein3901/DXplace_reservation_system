@@ -47,10 +47,11 @@
 | `INPUT_DEVICE_NAME` | MNG-1 | 機器の追加・名前の変更（`POST /api/admin/devices`、`…/{id}/rename`） | 1 | 機器の名前が、前後の空白を除いて1〜30文字でない、または改行・制御文字を含む（rules.md 6.6、design-values.md） |
 | `INPUT_TIME` | TIM-3 | 確保（`POST /api/reservations`）、予約なしの利用（`POST /api/walk-ins`）、時間帯の変更（`POST /api/reservations/{id}/change`） | 1 | 境界の時刻が `YYYY-MM-DDTHH:mm` の形でない（秒・タイムゾーン付きを含む）、またはありえない日時（`02-30`、`24:00` など）（rules.md 6.8） |
 | `INPUT_DATE` | VIW-1 | 予約状況（`GET /api/devices/{id}/day`） | 1 | クエリの `date` がない、`YYYY-MM-DD` の形でない、またはありえない日（rules.md 6.8） |
+| `INPUT_SETTING_VALUE` | RSV-25 | 数値の変更（`POST /api/admin/settings`） | 1 | 数値の値が1以上の整数でない（小数・0・負の数）、または計算が正しく行える範囲を超える（rules.md 6.17）。値が数値でないときは `INPUT_BODY` |
 
 - `INPUT_COHORT` は、項目の型の誤りも含む。期生は要るかどうかが生徒か教員かで変わるので、共4 の `INPUT_BODY` ではなく段 1 で確かめる（rules.md 6.4）。`role`・`student_id`・`name` の型の誤りは `INPUT_BODY`。
 
-ほかの項目ごとの形式のコードは、機能ごとの設計で足す。確保・予約なしの利用の本文の `device_id` が正の整数でないときは、項目の型の誤りとして `INPUT_BODY` にする（api.md 8.25、8.27）。管理者の画面からの作成・設定し直しも、上の3つを同じ意味で返す（その機能の設計で「返す API」に足す）。
+ほかの項目ごとの形式のコードは、機能ごとの設計で足す。確保・予約なしの利用の本文の `device_id` が正の整数でないときは、項目の型の誤りとして `INPUT_BODY` にする（api.md 8.25、8.27）。数値の変更の本文の `key` が3つの数値のどれでもないときも `INPUT_BODY` にする（api.md 8.42）。管理者の画面からの作成・設定し直しも、上の3つを同じ意味で返す（その機能の設計で「返す API」に足す）。
 
 ### 3.2 `AUTH_`（401）
 

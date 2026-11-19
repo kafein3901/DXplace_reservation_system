@@ -219,6 +219,7 @@ API を変えるときの決まり：
 | `POST /api/reservations/{id}/change` | 時間帯の変更（RSV-9〜RSV-12） | 済（8.32〜8.33） |
 | `POST /api/reservations/{id}/begin`、`…/finish` | 利用開始・利用終了（RSV-13〜RSV-16, RSV-18, RSV-19） | 済（8.34〜8.36） |
 | `GET /api/admin/devices/{id}/reservations`、`POST /api/admin/reservations/{id}/cancel`、`…/finish` | 予約の管理（MNG-3） | 済（8.37〜8.40） |
+| `GET /api/admin/settings`、`POST /api/admin/settings` | 数値の変更（RSV-25, RSV-26） | 済（8.41〜8.43） |
 | screens-and-api.md 5 の一覧の残りすべて | rules.md 6 の表の各機能と、利用者の入力・予約状況 | 未 |
 
 ### 8.1 `POST /api/maint/admins`（管理者の作成。ADM-2）
@@ -1592,6 +1593,99 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | API | 取消・終了で `Origin` がないと `AUTH_ORIGIN`、本文が壊れていると `INPUT_BODY`。一覧（`GET`）は `Origin` を確かめない。`{id}` が `0`・`01`・`abc` なら `NOT_FOUND_API`。終了の本文に `end` を入れても無視される |
 | MNG-3 | 一覧の SQL を `EXPLAIN QUERY PLAN` で見ると `reservations_device_status` を使う（schema.md 3） |
 
+### 8.41 `GET /api/admin/settings`（数値の現在の値。RSV-25）
+
+管理者の画面の「数値」で、3つの数値の欄の初期値に使う。経路の表では、認証の種類は「管理者」、包むかは「包まない」。
+
+処理：準備（8.5 の 1）→ `clock()` で `now` を取り、`nowMin = floorMinute(now)` → 共3（8.5 の 2）→ `transactionSync` の中で自動の変化を反映し、store が数値の履歴の全件を引き、`currentSettings(履歴, nowMin)`（rules.md 6.17）→ 成功を返す（`Set-Cookie` で期限を延ばす。8.5）。
+
+応答の `data`：
+
+| 項目 | 内容 |
+| --- | --- |
+| `max_count` | 件数の上限（RSV-4）。件 |
+| `grace_minutes` | 猶予（RSV-13）。分 |
+| `max_length_minutes` | 長さの上限（RSV-6）。分 |
+
+- 名前は `settings.key`（schema.md 2.4）とそろえる。画面と台帳で項目の名前を読み替えない。
+- 有効になった時刻・履歴は返さない。要件の画面は「現在の値と変更」だけ（screens-and-api.md 3）。履歴は記録（`setting_changed`）と `settings` の行に残る。
+
+返しうるコード（確かめる順）：`NOT_FOUND_API` → `AUTH_REQUIRED` → `AUTH_REVOKED`。`GET` なので `Origin` と本文は確かめない。
+
+記録：読むだけなので書かない。反映した自動の変化は記録する（logging.md 2）。
+
+### 8.42 `POST /api/admin/settings`（数値の変更。RSV-25, RSV-26, RSV-22, LOG-4）
+
+経路の表では、認証の種類は「管理者」、包むかは「包まない」。
+
+要求の本文：
+
+| 項目 | 型 | 省略 | 内容 |
+| --- | --- | --- | --- |
+| `key` | 文字列 | できない | `max_count`・`grace_minutes`・`max_length_minutes` のどれか（rules.md 6.17 の `SETTING_KEYS`） |
+| `value` | 数値 | できない | 新しい値。1以上の整数（rules.md 6.17） |
+
+1回の要求で1つの数値だけを変える。
+
+処理：
+
+1. 準備：本文を読む。管理者の Cookie の値のハッシュを求める（8.5 の 1）。
+2. `clock()` で現在時刻 `now` を取り、`nowMin = floorMinute(now)`。
+3. 共2（`Origin`）→ 共3（8.5 の 2）→ 共4（本文が JSON のオブジェクトで、`key` が文字列で `SETTING_KEYS` のどれかであること、`value` が数値であること）。
+4. 段 1：`validateSettingValue(key, value)`（rules.md 6.17）。断ったら何も書かず、自動の変化も反映しない（8.15 と同じ）。
+5. `transactionSync` の中で：
+   1. 自動の変化を反映する（rules.md 5）。
+   2. store が数値の履歴の全件を引く。
+   3. `decideSettingChange({ settings, key, value, nowMin })`（rules.md 6.17）。断らない。
+   4. `action` が `change` なら、`settings` に `(key, value, effective_at = nowMin)` の1行を足し、記録を書く。`unchanged` なら何も書かない。
+   5. 足した後の履歴で `currentSettings(履歴, nowMin)` を求める。
+6. 成功を返す（`Set-Cookie` で期限を延ばす。8.5）。
+
+決めたことと理由：
+
+- **1回に1つの数値だけを変える。** 3つをまとめて送る形では、ほかの管理者が直前に変えた値を、古い画面に残った前の値で戻してしまう。1つでも誤りがあったときに、残りをどうするかも決めることになる。画面は欄ごとに保存のボタンを置く（screens.md に回す）。
+- **`key` の誤りは `INPUT_BODY`。** `key` は画面が固定の値を送るもので、利用者が入力しない。確保の `device_id` の形の誤り（8.25）と同じ扱いにする。
+- **変更は `nowMin` から有効（RSV-26）。** 5.1 で自動の変化を反映してから行を足すので、`nowMin` 以下に起きる変化は前の値で確定している（RSV-22。数値の変更も「操作」で、同じ時刻の自動の変化より後）。開始時刻がちょうど `nowMin` の予約には変更後の猶予が使われ、開始を過ぎた予約の猶予は変わらない（rules.md 3.1）。
+- **確保済みの予約を変えない（RSV-25）。** 予約の表には触れない。上限を下げても取り消さない（rules.md 6.17）。
+- **同じ値への変更は `unchanged` で、成功として返す。** 行も記録も足さない（8.20 と同じ）。
+- **ほぼ同時の変更（RSV-23）。** 3 の後から 5 の終わりまでに `await` がないので、割り込まれない。2人の管理者が同じ数値を同時に変えると、両方とも成功し、後に処理されたほうの値が残る。後の記録の `before` には先の値が入るので、記録からたどれる。後の操作を断る仕組み（直前の値を要求に入れさせるなど）は置かない（要件にない。8.9 の共有された情報と同じく、残るリスクとして受け入れる）。数値の変更とほかの操作（確保など）が同時なら、先に処理された方の値でもう一方が判定される。
+- **記録の時刻は切り捨てない（TIM-5）。** 記録の `at` は `now`。`effective_at` は `nowMin`（境界の時刻。time-and-concurrency.md 1）。
+
+応答の `data`：8.41 と同じ形（変更後の3つの値）。`unchanged` でも同じ形で返す。画面は応答で欄を更新し、取り直さなくてよい。
+
+返しうるコード（確かめる順）：
+
+| 順 | コード | 段 |
+| --- | --- | --- |
+| 1 | `NOT_FOUND_API` | 共1 |
+| 2 | `AUTH_ORIGIN` | 共2 |
+| 3 | `AUTH_REQUIRED`・`AUTH_REVOKED` | 共3 |
+| 4 | `INPUT_BODY` | 共4 |
+| 5 | `INPUT_SETTING_VALUE` | 1 |
+
+記録（`events`。LOG-4）：`change` のときだけ、`at = now`、`actor_kind = 'admin'`、`actor_admin_id` は操作した管理者の番号、`kind = 'setting_changed'`、`reservation_id`・`device_id`・`user_id`・`admin_id` は `NULL`、`detail` は `{"key": …, "before": 変更前の値, "after": 変更後の値, "effective_at": nowMin のミリ秒}`（schema.md 2.9）。
+
+### 8.43 台帳の層のテストの観点（数値の変更）
+
+時計は例として 10:00:30（`nowMin` = 10:00）。
+
+| ID | 確かめること |
+| --- | --- |
+| RSV-25 | 初期データだけなら GET が `{ max_count: 3, grace_minutes: 15, max_length_minutes: 1440 }`。`max_count` を 5 にすると、応答と次の GET が 5 で、`settings` に `effective_at` が 10:00 の行が1行足される |
+| RSV-25, LOG-4 | 変更の記録が1行で、`actor_kind = 'admin'`、`actor_admin_id` が操作した管理者、`at` が秒を切り捨てていない時刻、`detail` が `{"key":"max_count","before":3,"after":5,"effective_at":10:00 のミリ秒}`。番号の列はすべて `NULL` |
+| RSV-25 | 今と同じ値への変更は成功し、`settings` と `events` が変わらない |
+| RSV-25 | 3件を確保している利用者がいるとき `max_count` を 1 にしても、3件とも予約済のまま残る。その利用者の新しい確保は `RULE_COUNT`、1件も持たない利用者は1件確保できて2件目が `RULE_COUNT` |
+| RSV-25 | 120分の予約済があるとき `max_length_minutes` を 60 にしても残り、開始時刻ちょうどに利用開始できる。新しい確保は61分で `RULE_LENGTH`、60分は成功 |
+| RSV-26 | 猶予 15分のとき、開始 9:58 の予約済があり、10:00 に猶予を 5分にしても、10:03 では予約済のまま、10:12 でも予約済、10:13 で無断不使用（猶予は開始時刻の時点の 15分。記録は自動・10:13） |
+| RSV-26 | 10:00 に猶予を 5分にすると、開始 10:00 ちょうどの予約済は 10:05 で無断不使用（記録は自動・10:05）。開始 10:01 の予約済は 10:06 で無断不使用 |
+| RSV-22 | 開始 9:45 の予約済（猶予 15分）は、10:00 の数値の変更の前に無断不使用になる（記録は自動・10:00 で、`setting_changed` より番号が小さい） |
+| RSV-26 | 同じ分に 15 → 5 → 20 と変えると、`settings` に `effective_at` が 10:00 の行が2つ足され、GET が 20。開始 10:00 の予約済の猶予は 20分。記録は2行で、2行目の `before` が 5 |
+| RSV-25 | `value` が 0・−1・1.5・`Number.MAX_SAFE_INTEGER + 1` なら `INPUT_SETTING_VALUE`（400）。`grace_minutes` に `Math.floor(Number.MAX_SAFE_INTEGER / 60000) + 1` も `INPUT_SETTING_VALUE`。どれも `settings`・`events` が変わらず、自動の変化も反映されない |
+| API | `key` がない・`"max"` などの知らない名前・数値、`value` がない・`"3"`・`null` なら `INPUT_BODY`。`Origin` がないと `AUTH_ORIGIN`。GET は `Origin` を確かめない |
+| ADM-1 | 2つの API とも、利用者の Cookie だけでは `AUTH_REQUIRED`。管理者の証明を解いた後は `AUTH_REVOKED` |
+| RSV-23 | 2人の管理者が同じ数値を同時に変えると、両方とも成功し、`settings` に2行、`events` に2行。後の記録の `before` が先の値 |
+| RSV-21 | GET でも、反映した自動の変化が残る |
+
 ## 採らなかった案
 
 | 案 | 理由 |
@@ -1648,3 +1742,6 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | 予約の管理の一覧に期生も入れる | MNG-3 が挙げる項目にない。利用者は学籍番号で見分けられる（8.37） |
 | 予約の管理の一覧に `now` を入れる | 出す操作は状態だけで決まり、時刻によらない（8.37） |
 | 管理者による取消・終了のパスを機器の下に置く（`/api/admin/devices/{id}/reservations/{rid}/cancel`） | 基本設計の経路と変わる。予約の番号だけで対象が決まり、機器の番号が要らない（8.38） |
+| 数値の変更で、3つの数値をまとめて送る | 古い画面から送ると、ほかの管理者が直前に変えた値を戻してしまう。1つでも誤りがあったときの扱いが増える（8.42） |
+| 数値の変更で、`key` の誤りに専用のコードを付ける | `key` は画面が固定の値を送るもので、利用者が入力しない（8.42） |
+| 数値の現在の値の応答に、有効になった時刻や履歴を入れる | 要件の画面は現在の値と変更だけ（8.41） |
