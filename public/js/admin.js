@@ -95,6 +95,55 @@ logoutButton.addEventListener('click', async () => {
   }
 });
 
+// 共有された情報（screens.md 4.7。ADM-3）。値は QR コードと URL の文字にだけ持ち、ページを閉じると消える
+const sharedInfoButton = document.getElementById('shared-info-set');
+const sharedInfoQr = document.getElementById('shared-info-qr');
+const sharedInfoUrl = document.getElementById('shared-info-url');
+
+function clearSharedInfo() {
+  sharedInfoQr.hidden = true;
+  sharedInfoQr.removeAttribute('src');
+  sharedInfoUrl.hidden = true;
+  sharedInfoUrl.textContent = '';
+}
+
+// createImgTag・createSvgTag は HTML の文字列を返すので使わず、データの URL を img の src に入れる（screens.md 2.8）
+function showSharedInfo(value) {
+  const url = `${location.origin}/#k=${value}`;
+  const qr = qrcode(0, 'M');
+  qr.addData(url);
+  qr.make();
+  sharedInfoQr.src = qr.createDataURL(8, 4);
+  sharedInfoQr.hidden = false;
+  sharedInfoUrl.textContent = url;
+  sharedInfoUrl.hidden = false;
+}
+
+sharedInfoButton.addEventListener('click', async () => {
+  // 最初の設定でも同じ文で確かめる（画面は未設定かどうかを知らない）
+  if (!confirm('共有された情報を変更しますか？ 今までの QR コードは使えなくなります。')) return;
+  setMessage('shared-info', '', null);
+  sharedInfoButton.disabled = true;
+  try {
+    const result = await callApi('POST', '/api/admin/shared-info', {});
+    if (result.ok) {
+      showSharedInfo(result.data.value);
+      setMessage(
+        'shared-info',
+        '設定しました。この QR コードを印刷するか、画像を保存してください。ページを閉じたり読み込み直したりすると、もう表示できません。',
+        'success',
+      );
+      return;
+    }
+    // 応答が届かなかったときは台帳で変わっているかもしれないので、前の QR コードを消す。
+    // 断られたときは台帳が変わっていないので残す
+    if (result.code === null) clearSharedInfo();
+    showError(result.code);
+  } finally {
+    sharedInfoButton.disabled = false;
+  }
+});
+
 for (const button of bar.querySelectorAll('[data-screen]')) {
   button.addEventListener('click', () => show(button.dataset.screen));
 }

@@ -15,6 +15,7 @@
 // 本番の台帳は既定の部品で作った ROUTES だけを使う
 import { login, logout, me, prepareLogin } from './admin-auth.js';
 import { createAdminByMaint, resetAdminPasswordByMaint } from './maint.js';
+import { prepareSharedInfo, setSharedInfo } from './shared-info.js';
 import { pbkdf2 } from '../lib/hash.js';
 
 export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
@@ -46,6 +47,15 @@ export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
     },
     { method: 'GET', path: '/api/admin/me', auth: 'admin', wrap: false, handler: me },
     { method: 'POST', path: '/api/admin/logout', auth: 'admin', wrap: false, handler: logout },
+    // 共有された情報の設定・変更（api.md 8.9。ADM-3）。ハッシュは SHA-256 だけなので包まない
+    {
+      method: 'POST',
+      path: '/api/admin/shared-info',
+      auth: 'admin',
+      wrap: false,
+      prepare: prepareSharedInfo,
+      handler: setSharedInfo,
+    },
   ];
 }
 

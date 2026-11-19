@@ -10,6 +10,7 @@
   <!-- 上の帯（screens.md 4.1）。認証の画面では隠す。画面のボタンは機能ごとの実装で足す -->
   <nav id="bar" hidden>
     <button type="button" data-screen="devices">機器</button>
+    <button type="button" data-screen="shared-info">共有された情報</button>
     <button type="button" id="logout">認証を解く</button>
     <span id="admin-label"></span>
   </nav>
@@ -31,6 +32,18 @@
     <p class="message"></p>
   </section>
 
+  <!-- 共有された情報（screens.md 4.7。ADM-3） -->
+  <section id="screen-shared-info" hidden>
+    <h1>共有された情報</h1>
+    <p>押すと新しい値を作り、QR コードを表示します。今までの QR コードは使えなくなり、それで利用を始めた端末もすべて止まります。確保済みの予約は変わりません。QR コードはここで1回だけ表示されます。</p>
+    <p class="message"></p>
+    <button type="button" id="shared-info-set">設定・変更する</button>
+    <p><img id="shared-info-qr" alt="利用者の画面の QR コード" hidden></p>
+    <p id="shared-info-url" class="url" hidden></p>
+  </section>
+
+  <!-- qrcode-generator はグローバル変数 qrcode を作るので、admin.js より前にふつうの script で読む（screens.md 1.1） -->
+  <script src="js/vendor/qrcode.js"></script>
   <script type="module" src="js/admin.js"></script>
 </body>
 </html>

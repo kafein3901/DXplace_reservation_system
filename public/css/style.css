@@ -9,6 +9,11 @@ body {
   color: #222;
 }
 
+/* 画面と帯は hidden 属性で切り替える（screens.md 1）。display を書いた要素でも hidden を効かせる */
+[hidden] {
+  display: none !important;
+}
+
 nav {
   display: flex;
   flex-wrap: wrap;
@@ -44,4 +49,13 @@ button {
 
 .message.success {
   color: #1b5e20;
+}
+
+/* 共有された情報の URL（screens.md 4.7）。長い値を幅に収める */
+.url {
+  overflow-wrap: anywhere;
+}
+
+img {
+  max-width: 100%;
 }
