@@ -1,0 +1,47 @@
+/* 2つの画面で共有する最小限の見た目（screens.md 1）。スマートフォンの幅に合わせる */
+body {
+  margin: 0 auto;
+  max-width: 40rem;
+  padding: 0 16px 2rem;
+  font-family: system-ui, sans-serif;
+  line-height: 1.6;
+  background: #fff;
+  color: #222;
+}
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #ccc;
+}
+
+label {
+  display: block;
+  margin: 0.5rem 0;
+}
+
+input,
+button {
+  font: inherit;
+  max-width: 100%;
+}
+
+button {
+  padding: 0.25rem 0.75rem;
+}
+
+/* 文を出す場所（screens.md 2.3）。エラーと成功をクラスで見分ける */
+.message:empty {
+  display: none;
+}
+
+.message.error {
+  color: #b00020;
+}
+
+.message.success {
+  color: #1b5e20;
+}

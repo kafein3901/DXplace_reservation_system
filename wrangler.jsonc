@@ -3,6 +3,8 @@
 {
   "name": "dxplace-reservation-system",
   "main": "src/index.js",
+  // 画面（public/）は静的ファイルの機能が返し、Worker を通らない（architecture.md 1・4）
+  "assets": { "directory": "./public" },
   // 基盤の更新で動きが変わらないように固定する。上げるときはテストを通してから。
   // 2026-08-15 は最初に決めた日付。上げるのは別の作業にする
   "compatibility_date": "2026-08-15",

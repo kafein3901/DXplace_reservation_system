@@ -23,6 +23,14 @@ export function newSalt() {
   return crypto.getRandomValues(new Uint8Array(16));
 }
 
+// 新しい証明の値とそのハッシュ（rules.md 6.3）。value はランダムな32バイトを base64url（= なし）にした43文字、
+// hash は value の UTF-8 のバイト列の SHA-256。value は isTokenFormat を必ず通る
+export async function newToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const value = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return { value, hash: await sha256(value) };
+}
+
 // PBKDF2-HMAC-SHA256。入力はパスワードの UTF-8 のバイト列、結果は32バイト
 export async function pbkdf2(password, salt, iterations) {
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);

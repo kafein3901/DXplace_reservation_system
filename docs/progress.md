@@ -2,7 +2,7 @@
 
 セッションを終える前（`/clear` の前）に更新し、次のセッションはここから読み始める。決定の中身は設計文書に書き、ここには「どこまで進んだか」「次に何をするか」「保留していること」だけを書く。
 
-最終更新：2026-11-19
+最終更新：2026-11-20
 
 ## いまの段階
 
@@ -60,7 +60,9 @@
 
 **実装の1つ目、土台と台帳の骨組みを書いた（2026-11-19。`npm test` は 7 ファイル 87 件がすべて通る）。2026-11-19 にコミットした（bffcc45）。push と GitHub Actions の確認はまだ。** 了承した方針のとおり、`package.json`・`.nvmrc`・`wrangler.jsonc`・`vitest.config.js`・`.github/workflows/test.yml`、`src/index.js`・`src/ledger.js`（`handle`、共1〜共4。認証は「誰でも」だけで、ほかの種類は例外にして 500）、`src/api/`（`routes.js` の空の表と `findRoute`、`respond.js`、`auto.js`）、`src/lib/`（`body.js`、`time.js` の `floorMinute`）、`src/rules/`（`settingAt`・`dueTransitions`）、`src/store/`（`migrations.js` の版 1 と `applyMigrations`、`reservations.js`・`settings.js`・`events.js`）と、`test/lib/`・`test/rules/`・`test/ledger/` を書いた。テストの基盤は `@cloudflare/vitest-plugin` 1.8.5 にした。前の名前の `@cloudflare/vitest-pool-workers` は非推奨で、`npm audit` の指摘も残っていたので移した（2026-11-19 に開発者が了承。理由は platform-selection.md「追加するツール」）。移った後も 87 件は通り、`npm audit` は0件。CLAUDE.md、platform-selection.md、testing-and-deploy.md、time-and-concurrency.md のパッケージ名も直した。決めた細部：`compatibility_date` は `2026-08-15`（前のテストの基盤が対応する日付までで決めた。上げるのは別の作業にする）。本文は 16 KiB を超えた時点で読むのをやめる。`schema_migrations` は版 1 の中ではなく `applyMigrations` の最初で作る。`applyMigrations` と `handle` は、テストが版・経路を足した一覧を渡せる引数を持つ。台帳の層のテストは `newUniqueId()` で毎回新しい台帳を使う（テストの基盤にテストごとに保存場所を分ける設定がないため。testing-and-deploy.md 1 も合わせた）。索引のテストのため、自動の変化で引く SQL を `SQL_TRANSITION_CANDIDATES` として書き出した。
 
-**実装の2つ目、保守用の API を書いた（2026-11-19。`npm test` は 13 ファイル 191 件がすべて通る）。開発者の確認待ちで、コミットはまだしていない。** 了承した方針のとおり、`src/api/routes.js`（`buildRoutes({ derivePassword })` で表を作り、`ROUTES` はその既定。テストは数を数える関数を渡す）、`src/api/auth.js`（共3 の準備 `prepareAuth` と同期の `checkAuth`。保守は 未設定 → 上限 → 鍵）、`src/api/maint.js`（8.1・8.2）、`src/ledger.js`（認証を `api/auth.js` に移した）、`src/lib/`（`validate.js`・`client.js`・`hash.js`、`time.js` の `windowStart`、`body.js` の `hasStringFields`）、`src/rules/`（`admins.js` の `checkAdminCreate`・`checkAdminPasswordReset`、`auth.js` の `checkAttemptLimit`）、`src/store/`（`admins.js`・`auth-failures.js`）、`vitest.config.js`（テスト用の `MAINT_KEY` を束縛で渡す）と、そのテストを書いた。設計文書は2か所を直した：api.md 3.3 の 2・8.1・8.45（ソルトは準備では作らず、判定が通った後 PBKDF2 の直前に作る。`getRandomValues` は同期なので排他に響かない）、api.md 6.1（ヘッダの値の前後の空白は Fetch の仕様で除かれて届くので、鍵の後ろの空白は通る。テストで確かめた）。8.3 の2行目（設定し直した後の古い証明が `AUTH_REVOKED`）は、管理者の認証の実装で書く。
+**実装の2つ目、保守用の API を書いた（2026-11-19。`npm test` は 13 ファイル 191 件がすべて通る）。2026-11-20 にコミットした（c2f5afe）。手での確認と push はまだ。** 了承した方針のとおり、`src/api/routes.js`（`buildRoutes({ derivePassword })` で表を作り、`ROUTES` はその既定。テストは数を数える関数を渡す）、`src/api/auth.js`（共3 の準備 `prepareAuth` と同期の `checkAuth`。保守は 未設定 → 上限 → 鍵）、`src/api/maint.js`（8.1・8.2）、`src/ledger.js`（認証を `api/auth.js` に移した）、`src/lib/`（`validate.js`・`client.js`・`hash.js`、`time.js` の `windowStart`、`body.js` の `hasStringFields`）、`src/rules/`（`admins.js` の `checkAdminCreate`・`checkAdminPasswordReset`、`auth.js` の `checkAttemptLimit`）、`src/store/`（`admins.js`・`auth-failures.js`）、`vitest.config.js`（テスト用の `MAINT_KEY` を束縛で渡す）と、そのテストを書いた。設計文書は2か所を直した：api.md 3.3 の 2・8.1・8.45（ソルトは準備では作らず、判定が通った後 PBKDF2 の直前に作る。`getRandomValues` は同期なので排他に響かない）、api.md 6.1（ヘッダの値の前後の空白は Fetch の仕様で除かれて届くので、鍵の後ろの空白は通る。テストで確かめた）。8.3 の2行目（設定し直した後の古い証明が `AUTH_REVOKED`）は、管理者の認証の実装で書く。
+
+**実装の3つ目、管理者の認証を書いた（2026-11-20。`npm test` は 15 ファイル 244 件がすべて通る）。開発者の確認待ちで、コミットはまだしていない。** 了承した方針のとおり、api.md 3.3 の経路の表に2列を足した。「本文を自分で確かめるか」（`ownBodyCheck`。4 の例外の上限 → 本文 → 認証の値の順を処理に任せる。利用の開始でも使う）と「API ごとの準備」（`prepare`。login の新しい証明とダミーのソルト）。あわせて、管理者の API の期限の延長は `handle` が1か所で行う（処理が `Set-Cookie` を付けた応答と 500 を除く）と書いた。コードは次のとおり。`src/lib/cookie.js`（`readCookie`・`isTokenFormat`・`adminCookie`・`clearAdminCookie`）、`newToken`（`lib/hash.js`）、`checkAdminLogin`・`checkAdminSession`（`rules/auth.js`）、`src/store/admin-sessions.js`、`recordAuthFailure` に `failure`・`loginId`、`src/api/admin-auth.js`（`login`・`me`・`logout`）、`api/auth.js` の認証の種類 `'admin'`。画面は `public/admin.html`・`css/style.css`・`js/api.js`・`js/messages.js`・`js/admin.js`（認証の画面と上の帯。帯の画面のボタンは「機器」だけで、機器の画面は空の `<section>`。ほかのボタンと文は機能ごとに足す）。`wrangler.jsonc` に `assets`（`./public`。`html_handling` は既定のままなので、`/admin.html` は `/admin` に転送される）。前の作業から回したテスト（認証が先の `AUTH_REQUIRED`、login で `INPUT_BODY`・`LIMIT_ATTEMPTS` が先、設定し直した後の `AUTH_REVOKED`）は `test/ledger/admin-auth.test.js` に入れた。
 
 ## 詳細設計の方針（2026-11-19 に開発者が決定）
 
@@ -109,9 +111,9 @@
 
 ### 次の作業
 
-1. **保守用の API を開発者が確かめ、コミットする。次のセッションはここから始める。** 書いたものは上の「いまの段階」の最後の段落。手で確かめるのは screens.md 6.2 の段 1（`.dev.vars` に `MAINT_KEY` を置き、`npm run dev` の `http://localhost:8787` に api.md 6.2 の PowerShell の手順で送る）。あわせて、土台の作業のコミット（bffcc45）とこのコミットを push し、GitHub Actions の `npm ci` → `npm test` が通るかを確かめる（push は開発者の指示で行う）。
-2. 管理者の認証の実装（api.md 8.4〜8.8、rules.md 6.3 の `checkAdminLogin`・`checkAdminSession` と `lib/cookie.js`・`newToken`、screens.md 4.2 と 6.2 の段 2）。前の作業から回したテスト：本文が壊れていて証明もないときに `AUTH_REQUIRED` が先、管理者の認証で `INPUT_BODY`・`LIMIT_ATTEMPTS` が先（api.md 7 の「順」）、パスワードを設定し直した後の古い証明が `AUTH_REVOKED` でほかの管理者の証明は止まらない（api.md 8.3 の2行目）。`assets` と `public/` の設定もこの作業で行う。`recordAuthFailure` に管理者の認証の列（`unknown_id_failures`・`wrong_password_failures`・`last_login_id`）を足す。
-3. 以降は「機能を縦に切る順」で1つずつ実装する：共有された情報の設定 → 利用の開始 → 利用者の入力 → 機器 → 予約の操作①〜⑤ → 予約の管理 → 数値の変更 → 管理者の画面からの管理者のアカウント。画面（screens.md）はその機能の実装に含める。
+1. **保守用の API と管理者の認証を開発者が確かめ、管理者の認証をコミットする。次のセッションはここから始める。** 手で確かめるのは screens.md 6.2 の段 1 と段 2。`.dev.vars` に `MAINT_KEY` を置き、`npm run dev` の `http://localhost:8787` で行う。段 1 は api.md 6.2 の PowerShell の手順で送る。段 2 は `/admin.html` を開いて行う（`/admin` に転送されても動けばよい）。あわせて、bffcc45・c2f5afe と管理者の認証のコミットを push し、GitHub Actions の `npm ci` → `npm test` が通るかを確かめる（push は開発者の指示で行う）。
+2. 共有された情報の設定の実装（api.md 8.9〜8.10、screens.md 4.7 と 6.2 の段 3）。qrcode-generator を `public/js/vendor/qrcode.js` に写す（screens.md 1.2）。
+3. 以降は「機能を縦に切る順」で1つずつ実装する：利用の開始 → 利用者の入力 → 機器 → 予約の操作①〜⑤ → 予約の管理 → 数値の変更 → 管理者の画面からの管理者のアカウント。画面（screens.md）はその機能の実装に含める。
 4. 結合テスト（上の「進め方」4）。NFR-2 の結果の控えの置き場所はこのときに決める（screens.md 6.4）。
 
 実装の段階（上の「進め方」3）に回すこと：土台（`package.json`・`.nvmrc`・`wrangler.jsonc`・Vitest の設定。Node は手元が v26.13.0、wrangler は spike で 4.163.0 を使った。版は上の 1 で決めた）、台帳の骨組み（api.md 3 の経路の表と共通の流れ、1 の応答、4 の共通の確かめる順）と schema.md 5 の版の適用。api.md 3.4 と schema.md 5.4 の基盤の機能は spike で確かめた（2026-11-19。下の「schema.md で決めた持ち越し事項」）ので、実装では台帳の層のテストに書くだけでよい。GitHub Actions は、実装の段階ではテストのジョブだけを作り、デプロイのジョブは結合テストの後に作る（Cloudflare の API トークンは学校のアカウントが作る。PRE-11 は未定）。

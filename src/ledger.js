@@ -4,6 +4,7 @@ import { checkAuth, prepareAuth } from './api/auth.js';
 import { ROUTES, findRoute } from './api/routes.js';
 import { refuse, serverError } from './api/respond.js';
 import { readJsonBody } from './lib/body.js';
+import { adminCookie } from './lib/cookie.js';
 import { floorMinute } from './lib/time.js';
 import { applyMigrations } from './store/migrations.js';
 
@@ -53,6 +54,7 @@ export class Ledger extends DurableObject {
     // await が要る準備。本文が壊れていても、ここでは断らない（api.md 3.3 の 2）
     const body = isGet ? null : await readJsonBody(request);
     const prepared = await prepareAuth(route.auth, request, this.env);
+    const routePrepared = route.prepare ? await route.prepare() : null;
 
     // 現在時刻は準備の後に1回だけ取る（api.md 3.3 の 3）
     const now = clock();
@@ -67,20 +69,34 @@ export class Ledger extends DurableObject {
     const auth = checkAuth(route.auth, { storage: this.ctx.storage, request, prepared, now });
     if (!auth.ok) return refuse(auth.code);
 
-    // 共4：本文を読めたか。認証が通ってから返す
-    if (body !== null && !body.ok) return refuse('INPUT_BODY');
+    // 管理者の API は、共3 を通った後の応答で期限を延ばす（api.md 3.3・8.5）
+    const extend = (response) => (route.auth === 'admin' ? withAdminCookie(response, prepared.token) : response);
+
+    // 共4：本文を読めたか。認証が通ってから返す。本文を自分で確かめる API は処理が確かめる（api.md 4 の例外）
+    if (body !== null && !body.ok && !route.ownBodyCheck) return extend(refuse('INPUT_BODY'));
 
     // API ごとの処理。自動の変化の反映と書き込みは、処理の中で transactionSync に包む（api.md 3.5）
-    return await route.handler({
+    const response = await route.handler({
       storage: this.ctx.storage,
       env: this.env,
       request,
       params,
-      body: body === null ? null : body.value,
+      body: body === null || !body.ok ? null : body.value,
+      bodyOk: body === null || body.ok,
+      auth,
+      routePrepared,
       now,
       nowMin,
     });
+    return extend(response);
   }
+}
+
+// 受け取った値で Set-Cookie を送り直す。処理がすでに Set-Cookie を付けた応答（認証を解くなど）と 500 には付けない
+function withAdminCookie(response, token) {
+  if (response.status === 500 || response.headers.has('Set-Cookie')) return response;
+  response.headers.append('Set-Cookie', adminCookie(token));
+  return response;
 }
 
 // 要求の URL のオリジンと Origin ヘッダが完全に一致するか。ヘッダがなければ一致しない（api.md 4）
