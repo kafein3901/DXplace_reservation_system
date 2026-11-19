@@ -31,7 +31,7 @@
 
 | 文書 | 決めること | 対応する `src/` |
 | --- | --- | --- |
-| `detailed/rules.md` | ルールごとの判定の手順、関数の入出力、複数のルールに反するときに確かめる順、自動の変化を反映する手順、ルールのテストの観点 | `rules/`、`lib/` |
+| [detailed/rules.md](detailed/rules.md) | ルールごとの判定の手順、関数の入出力、複数のルールに反するときに確かめる順、自動の変化を反映する手順、ルールのテストの観点 | `rules/`、`lib/` |
 | `detailed/schema.md` | 表の定義（列・型・制約・索引）、初期データ、スキーマの版と起動時の順の適用 | `store/` |
 | `detailed/error-codes.md` | 理由のコードの一覧（コード・HTTP・要件の ID・どこで返すか） | `rules/`、`public/js/messages.js` |
 | `detailed/api.md` | API ごとの入出力と返しうるコード、保守用の API の `curl` 手順、Worker と台帳の受け渡し、台帳の層のテストの観点 | `api/`、`ledger.js`、`index.js` |
