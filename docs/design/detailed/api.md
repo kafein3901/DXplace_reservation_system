@@ -1,6 +1,6 @@
 # API
 
-- 状態：作成中（共通の部分を決定。API ごとの入出力は、機能ごとの設計で足す）
+- 状態：作成中（共通の部分と保守用の API を決定。残りの API の入出力は、機能ごとの設計で足す）
 - 日付：2026-11-19
 - 関係する要件：USR-1, USR-2, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, TIM-1, NFR-4, PRE-5, FUT-1
 - 前提：[architecture.md](../basic/architecture.md) 1, 3, 4（Worker は渡すだけ、手順 1〜7）、[screens-and-api.md](../basic/screens-and-api.md) 4〜7（API の一覧、応答の形）、[auth.md](../basic/auth.md) 1, 3, 6, 7（入口の種類、Cookie と Origin、保守用の鍵、試行の制限）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 2, 4（時刻を取る位置、`blockConcurrencyWhile`）、[error-codes.md](error-codes.md)、[schema.md](schema.md) 5（版の適用）
@@ -62,7 +62,7 @@ API は1つの表に並べる。1行が1つの API。
 `handle` はこの表を引き、すべての API に共通の流れを組む。API ごとの関数は、共通の流れの後の部分（rules.md 4 の段 1〜8 と書き込み）だけを書く。
 
 1. 経路を引く。なければ `NOT_FOUND_API`。
-2. `await` が要る準備（architecture.md 3 の手順 1）：本文を読む（壊れていても、ここでは断らずに印を付ける）、Cookie の値の SHA-256、新しく渡す証明の値とそのハッシュ、共有された情報・保守用の鍵のハッシュ（auth.md 3）。
+2. `await` が要る準備（architecture.md 3 の手順 1）：本文を読む（壊れていても、ここでは断らずに印を付ける）、Cookie の値の SHA-256、新しく渡す証明の値とそのハッシュ、共有された情報・保守用の鍵のハッシュ（auth.md 3、下の 6.1）、パスワードを新しく設定する操作のソルト（下の 8.1）。
 3. 現在時刻を `clock()` で1回だけ取る。包む API は、包んだ中で 2 の後に取る。
 4. 同期の区間に入り、下の 4 の共通の順で確かめる。
 5. API ごとの関数を呼ぶ（手順 3〜6 は `transactionSync` の中。time-and-concurrency.md 4）。
@@ -86,7 +86,8 @@ rules.md 4 の段 1 より前に、すべての API で次の順に確かめる�
 | 共4 | 本文を読めたか | `INPUT_BODY` | `GET` |
 
 - **本文の誤りは、認証が通ってから返す。** 本文は 3.3 の 2 で読んでおくが、壊れていたことは共3 の後に返す。認証されていない相手に、入力の形について何も教えないため。
-- **例外：利用の開始（`POST /api/session`）、管理者の認証（`POST /api/admin/login`）、保守用の API。** 認証の値が本文に入っているので、本文が読めなければ認証を確かめられない。これらは共4 を共3 の前に確かめる。試行の上限（`LIMIT_ATTEMPTS`）は共4 より前に確かめ、上限を超えた相手には本文の誤りも教えない。
+- **例外：利用の開始（`POST /api/session`）、管理者の認証（`POST /api/admin/login`）。** 認証の値が本文に入っているので、本文が読めなければ認証を確かめられない。これらは共4 を共3 の前に確かめる。試行の上限（`LIMIT_ATTEMPTS`）は共4 より前に確かめ、上限を超えた相手には本文の誤りも教えない。
+- **保守用の API は例外にしない。** 鍵は本文ではなくヘッダで送る（下の 6）ので、ほかの API と同じく、鍵が通ってから本文の誤りを返す（2026-11-19 に保守用の API の設計で直した。当初は例外に含めていた）。
 - **保守用の API で `Origin` を確かめない理由。** `curl` は `Origin` を送らない。保守用の鍵はヘッダで送り、Cookie を使わないので、ほかのサイトから送らせる攻撃（CSRF）が成り立たない。
 - **`Origin` の比べ方。** 要求の URL のオリジン（`new URL(request.url).origin`）と、`Origin` ヘッダの値が完全に一致すること。ヘッダがなければ断る。主要なブラウザは、同じサイトへの `fetch` の `POST` にも `Origin` を付ける。
 
@@ -109,27 +110,77 @@ API を変えるときの決まり：
 
 採らなかった案：画面と台帳が版の番号をヘッダで送り合い、食い違えば断る。仕組みが増えるわりに、食い違うのはデプロイの直後の短い間だけで、v0.1.0（公開しないベータ版）では得るものが小さい。
 
-## 6. 保守用の API の `curl` 手順の形
+## 6. 保守用の API の鍵と手順
 
-保守用の API（auth.md 6）は画面を作らず、`curl` で呼ぶ。手順は次の型で書く。API ごとの本文の項目は、管理者のアカウントの機能の設計で決める。
+保守用の API（auth.md 6）は画面を作らず、`curl` で呼ぶ。
 
-1. Cloudflare の管理画面（または `wrangler secret put MAINT_KEY`）で、32バイト以上のランダムな値を `MAINT_KEY` に設定する。
-2. 鍵と本文を、コマンドの履歴に残らない形で用意する。鍵は環境変数に入れ、本文（パスワードを含む）はファイルに書いて `--data @ファイル` で渡す。使い終えたらファイルを消す。
-3. `curl` で呼ぶ。鍵は `Authorization: Bearer 鍵` のヘッダで送る。
+### 6.1 鍵の確かめ方（共3。ADM-2, SEC-3）
 
-   ```
-   curl -X POST https://（システムの URL）/api/maint/admins \
-     -H "Authorization: Bearer $MAINT_KEY" \
-     -H "Content-Type: application/json" \
-     --data @body.json
-   ```
-
-4. 応答の `ok` を確かめる。
-5. `MAINT_KEY` を消す（auth.md 6「ふだんは消しておく」）。
+鍵は `Authorization: Bearer 鍵` のヘッダで送る。
 
 - 鍵をヘッダで送るのは、URL に入れると基盤のアクセスの記録に残り、本文に入れると API ごとの本文の形に鍵が混ざるため。`Authorization` は Web の一般的な書き方（PRE-5）。
-- 鍵の比べ方（両方の SHA-256 を `timingSafeEqual` で比べる、など）は、管理者のアカウントの機能の設計で決める。
-- Windows の PowerShell で同じことをする書き方も、そのときに添える。
+
+準備（3.3 の 2）で、`env.MAINT_KEY` と、ヘッダの `Bearer ` の後ろの値の SHA-256（UTF-8 のバイト列に対して）を求めておく。ヘッダがない、または `Bearer` と空白1つで始まらない（大文字・小文字も区別する）ときは、値がないものとして印を付ける。同期の区間で、次の順に確かめる。
+
+| 順 | 確かめること | 断るとき | 失敗として数えるか |
+| --- | --- | --- | --- |
+| 1 | `MAINT_KEY` が設定されていて、43文字以上か（design-values.md） | `AUTH_MAINT_DISABLED` | 数えない（表に何も書かない） |
+| 2 | 試行の上限：`auth_failures` の、`entry = 'maint'`・`client = clientKey(CF-Connecting-IP)`（rules.md 6.2）・その10分の区切りの行の `failures` が5未満か | `LIMIT_ATTEMPTS` | 数えない（上限後は書かない。logging.md 4） |
+| 3 | ヘッダの値があり、その SHA-256 と `MAINT_KEY` の SHA-256 が `crypto.subtle.timingSafeEqual` で等しいか | `AUTH_MAINT_KEY_INVALID` | 数える |
+
+- **両方の SHA-256 を比べる。** `timingSafeEqual` は同じ長さのバイト列しか比べられない。ハッシュにすれば長さがそろい、比べる時間から鍵の長さもわからない。鍵は256ビットのランダムな値なので、速い SHA-256 で足りる（auth.md 4 の共有された情報と同じ考え方）。
+- **未設定を先に確かめ、数えない。** 比べる鍵がないので試行にならない。数えないので、未設定の間に何度呼ばれても書き込みが起きない。学校のアカウントには、試行の上限より先に本当の原因（未設定）が見える。
+- **43文字より短い鍵は未設定とみなす。** 試しに `test` などを入れたまま忘れても、保守用の API が開かないようにする。43文字は32バイトを base64url にした長さ（auth.md 6「32バイト以上のランダムな値」）。
+- **鍵の値は前後の空白も除かずに比べる。** 下の 6.2 の手順で作る値には空白が入らない。
+- 失敗を数えるときは、`transactionSync` の中で、行がなければ `failures = 1` で足し（`first_at`・`last_at` は実際の時刻。秒を切り捨てない）、あれば `failures` を1増やして `last_at` を書く。足したときは 10,000行を超えた古い行を消す（schema.md 2.10）。`unknown_id_failures`・`wrong_password_failures` は 0、`last_login_id` は `NULL`。
+- 鍵が通った後の誤り（本文、入力の形式、対象がない、重複）は失敗として数えない。鍵を知っている人の操作の誤りで、試行ではない。
+
+### 6.2 手順（PowerShell）
+
+学校のアカウントが Windows の PC で行う手順。`curl.exe` は Windows 10 以降に標準で入っている（PowerShell の `curl` は別のコマンドの別名なので、`.exe` まで書く）。鍵とパスワードは PowerShell の中で作り、キーボードで打たない。コマンドの履歴には変数の名前だけが残り、値は残らない。
+
+1. 鍵を作り、クリップボードに写す。
+
+   ```powershell
+   $b = [byte[]]::new(32); [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); $env:MAINT_KEY = [Convert]::ToBase64String($b).TrimEnd('=').Replace('+','-').Replace('/','_'); Set-Clipboard -Value $env:MAINT_KEY
+   ```
+
+2. Cloudflare の管理画面で、システムの Worker の「設定」→「変数とシークレット」に、種類「シークレット」、名前 `MAINT_KEY` で貼り付けて保存する。保存したらクリップボードを消す（`Set-Clipboard -Value ' '`）。`npx wrangler secret put MAINT_KEY` でも設定できる（手元のコードは送らない）。
+3. 新しい管理者のパスワードを作る（24バイトを base64url にした32文字。すべてパスワードに使える文字になる）。
+
+   ```powershell
+   $b = [byte[]]::new(24); [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); $pw = [Convert]::ToBase64String($b).Replace('+','-').Replace('/','_')
+   ```
+
+4. 本文をファイルに書く。管理者の作成なら次のとおり（ID と表示用の名前は置き換える）。パスワードの設定し直しなら `@{ password = $pw }` だけにする。
+
+   ```powershell
+   @{ login_id = 'tanaka'; display_name = '田中 太郎'; password = $pw } | ConvertTo-Json | Set-Content -Encoding utf8 body.json
+   ```
+
+5. 呼ぶ。パスワードの設定し直しなら、パスを `/api/maint/admins/（番号）/reset-password` にする。番号の調べ方は 8.2。
+
+   ```powershell
+   curl.exe -s -X POST https://（システムの URL）/api/maint/admins -H "Authorization: Bearer $env:MAINT_KEY" -H "Content-Type: application/json" --data-binary "@body.json"
+   ```
+
+6. 応答が `{"ok":true,"data":{"id":…,"login_id":…,"display_name":…}}` であることを確かめる。`"ok":false` なら `error.code` を error-codes.md で引く。成功したら、`$pw` を表示して管理者に伝える（ADM-2 の制約により、作った人はパスワードを知ったままになる）。
+7. 後片付けをする。そのあと管理画面で `MAINT_KEY` を消す（auth.md 6「ふだんは消しておく」）。
+
+   ```powershell
+   Remove-Item body.json; Remove-Item Env:MAINT_KEY; Remove-Variable pw, b
+   ```
+
+- Windows PowerShell 5.1 の `Set-Content -Encoding utf8` は、ファイルの先頭に BOM を付ける。台帳は本文を `request.text()` で読む。UTF-8 として読むときに先頭の BOM は除かれる（Fetch の仕様）ので、BOM があっても読める。台帳の層のテストで確かめる（8.3）。
+- 本文をファイルで渡すのは、パスワードをコマンドの引数に書かないため。`--data-binary` はファイルのバイト列を変えずに送る。
+- macOS・Linux の端末なら、同じことを次のように書ける（鍵は `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='` などで作る）。
+
+   ```
+   curl -s -X POST https://（システムの URL）/api/maint/admins \
+     -H "Authorization: Bearer $MAINT_KEY" \
+     -H "Content-Type: application/json" \
+     --data-binary @body.json
+   ```
 
 ## 7. 台帳の層のテストの観点（共通の部分）
 
@@ -137,7 +188,7 @@ API を変えるときの決まり：
 | --- | --- |
 | 経路 | ない経路、`{id}` が整数でない経路は `NOT_FOUND_API`（404） |
 | `Origin` | `POST` で `Origin` がない、違うときは `AUTH_ORIGIN`。`GET` と保守用の API は確かめない |
-| 順 | 本文が壊れていて証明もないときは `AUTH_REQUIRED`（認証が先）。利用の開始・管理者の認証では `INPUT_BODY` が先。上限を超えた相手には `LIMIT_ATTEMPTS` が先 |
+| 順 | 本文が壊れていて証明もないときは `AUTH_REQUIRED`（認証が先）。保守用の API でも、本文が壊れていて鍵が違えば `AUTH_MAINT_KEY_INVALID`。利用の開始・管理者の認証では `INPUT_BODY` が先。上限を超えた相手には `LIMIT_ATTEMPTS` が先 |
 | 本文 | JSON でない、オブジェクトでない、16 KiB を超えるときは `INPUT_BODY`。知らない項目があっても受け付ける |
 | ヘッダ | 成功でも断るときでも `Cache-Control: no-store` が付く |
 | 例外 | 処理の途中で例外が起きると 500 と `{ "ok": false }` を返し、表に何も書かれていない |
@@ -156,7 +207,104 @@ API を変えるときの決まり：
 
 | API | 機能 | 状態 |
 | --- | --- | --- |
-| screens-and-api.md 5 の一覧のすべて | rules.md 6 の表の各機能と、利用の開始・管理者の認証・利用者の入力・予約状況 | 未 |
+| `POST /api/maint/admins`、`POST /api/maint/admins/{id}/reset-password` | 保守用の API（ADM-2） | 済（8.1〜8.3） |
+| screens-and-api.md 5 の一覧の残りすべて | rules.md 6 の表の各機能と、利用の開始・管理者の認証・利用者の入力・予約状況 | 未 |
+
+### 8.1 `POST /api/maint/admins`（管理者の作成。ADM-2）
+
+学校のアカウントが、システムの外から管理者のアカウントを作る（最初の管理者と、全員が認証できなくなったときの復旧）。経路の表（3.3）では、認証の種類は「保守」、包むかは「包む」。
+
+要求の本文：
+
+| 項目 | 型 | 省略 | 内容 |
+| --- | --- | --- | --- |
+| `login_id` | 文字列 | できない | 管理者の ID。全角・大文字で送っても、そろえて保存する（rules.md 6.2） |
+| `display_name` | 文字列 | できない | 表示用の名前（USR-5 と同じ条件）。前後の空白を除いて保存する |
+| `password` | 文字列 | できない | パスワード（auth.md 5） |
+
+処理（すべて `blockConcurrencyWhile` の中。例外は中で受け止めて 500 にする。time-and-concurrency.md 4）：
+
+1. 準備：本文を読む。鍵の SHA-256 を求める（6.1）。新しいソルト（ランダムな16バイト）を作る。
+2. `clock()` で現在時刻を取る。
+3. 同期で確かめる（下の「返しうるコード」の順）。`login_id` はそろえた値で、store が同じ ID の行を削除した行も含めて引き、`checkAdminCreate` に渡す（rules.md 6.1）。
+4. すべて通ったときだけ、PBKDF2-HMAC-SHA256 を設定値の反復回数（100,000回。design-values.md）で計算する（`await`）。断る要求には計算しない（auth.md 7）。
+5. `transactionSync` の中で、自動の変化を反映し（rules.md 5）、`admins` に1行足し（`password_version = 1`、`password_iterations` は使った回数、`created_at` は 2 の時刻）、記録を書く。
+6. 成功を返す。
+
+- 断るときは、鍵の失敗を数える（6.1）ほかは何も書かない。自動の変化も反映しない。応答に予約の情報を含まず、次の要求で反映されるので RSV-21 に反しない。
+- 包んだ中で 3 から 5 まで割り込まれないので、同じ ID の作成がほぼ同時に届いても、後の要求は 3 で `RULE_ADMIN_ID_DUPLICATE` になる（RSV-23）。
+
+応答の `data`：
+
+| 項目 | 内容 |
+| --- | --- |
+| `id` | 管理者の番号（`admins.id`）。パスワードの設定し直し（8.2）で使う |
+| `login_id` | そろえた後の ID。管理者はこの値で認証する |
+| `display_name` | 前後の空白を除いた名前 |
+
+パスワードとハッシュは返さない。
+
+返しうるコード（確かめる順）：
+
+| 順 | コード | 段 |
+| --- | --- | --- |
+| 1 | `NOT_FOUND_API` | 共1 |
+| 2 | `AUTH_MAINT_DISABLED` | 共3（6.1 の 1） |
+| 3 | `LIMIT_ATTEMPTS` | 共3（6.1 の 2） |
+| 4 | `AUTH_MAINT_KEY_INVALID` | 共3（6.1 の 3） |
+| 5 | `INPUT_BODY`（JSON のオブジェクトでない、項目がない、文字列でない） | 共4 |
+| 6 | `INPUT_LOGIN_ID` | 1 |
+| 7 | `INPUT_NAME` | 1 |
+| 8 | `INPUT_PASSWORD` | 1 |
+| 9 | `RULE_ADMIN_ID_DUPLICATE` | 8 |
+
+記録（`events`。schema.md 2.9）：`at` は 2 の時刻、`actor_kind = 'maint'`、`actor_admin_id = NULL`、`kind = 'admin_created'`、`admin_id` は作った管理者の番号、`detail` は `{"login_id": …, "display_name": …}`。パスワード・ハッシュ・ソルト・鍵は入れない（SEC-4, LOG-4）。ADM-2 によりこの操作は LOG-4 の対象ではないが、追跡のため保守用の API によることを残す（auth.md 6）。
+
+### 8.2 `POST /api/maint/admins/{id}/reset-password`（パスワードの設定し直し。ADM-2）
+
+学校のアカウントが、管理者のパスワードを設定し直す。ID は変わらない。経路の表では、認証の種類は「保守」、包むかは「包む」。
+
+要求の本文：
+
+| 項目 | 型 | 省略 | 内容 |
+| --- | --- | --- | --- |
+| `password` | 文字列 | できない | 新しいパスワード（auth.md 5） |
+
+処理は 8.1 と同じ流れで、次が違う。
+
+- 3 で、store が `{id}` の管理者の行を削除した行も含めて引き、`checkAdminPasswordReset` に渡す（rules.md 6.1）。
+- 5 で、その行の `password_hash`・`password_salt`・`password_iterations` を上書きし、`password_version` を1増やす。これでその管理者の認証した状態は、すべての端末で直ちに止まる（次の要求から `AUTH_REVOKED`。ADM-2、auth.md 3）。
+
+応答の `data` は 8.1 と同じ（`id`・`login_id`・`display_name`）。
+
+返しうるコード（確かめる順）：`NOT_FOUND_API`（`{id}` が正の整数の形でないときも）→ `AUTH_MAINT_DISABLED` → `LIMIT_ATTEMPTS` → `AUTH_MAINT_KEY_INVALID` → `INPUT_BODY` → `INPUT_PASSWORD`（段 1）→ `NOT_FOUND_ADMIN`（段 2。いない、または削除済み）。
+
+記録：8.1 と同じ形で、`kind = 'admin_password_reset'`、`admin_id` は対象の管理者、`detail` は `{"login_id": …, "display_name": …}`。
+
+**番号の調べ方。** 作成したときの応答の `id` を控えておく。わからなければ、Cloudflare の管理画面の Data Studio（logging.md 6）で次の SQL を実行する。Data Studio を使える権限は、`MAINT_KEY` を設定できる権限と同じ（PRE-11）。
+
+```sql
+SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
+```
+
+削除した管理者（`deleted_at` が入っている）のパスワードは設定し直せない。その人を戻したいときは、別の ID で作り直す（ADM-2「削除したアカウントの ID は再び使えない」）。
+
+### 8.3 台帳の層のテストの観点（保守用の API）
+
+| ID | 確かめること |
+| --- | --- |
+| ADM-2 | 作成すると `admins` に1行でき（版 1、反復回数 100,000、ID はそろえた値、名前は前後の空白を除いた値）、応答の `data` がその値になる。設定し直すと版が1増え、ハッシュとソルトが変わる |
+| ADM-2 | 設定し直すと、その管理者の前の版の証明（`admin_sessions` にテストが直接入れた行）で管理者の API を呼ぶと `AUTH_REVOKED` になる。ほかの管理者の証明は止まらない（管理者の認証の機能ができてから、その機能のテストに含めてもよい） |
+| ADM-2 | `Tanaka` で作った後に `tanaka` や `ＴＡＮＡＫＡ` で作ると `RULE_ADMIN_ID_DUPLICATE`。削除した管理者の ID でも同じ（`deleted_at` をテストが入れる） |
+| ADM-2 | ない番号、削除した管理者の番号への設定し直しは `NOT_FOUND_ADMIN`。`{id}` が `0`・`01`・`abc` なら `NOT_FOUND_API` |
+| ADM-2 | `MAINT_KEY` がない、42文字のときは `AUTH_MAINT_DISABLED` で、`auth_failures` に行が増えない |
+| SEC-3 | 鍵が違う、ヘッダがない、`Bearer` の形でないときは `AUTH_MAINT_KEY_INVALID` で、失敗が1増える。5回失敗した後は、正しい鍵でも `LIMIT_ATTEMPTS`。別の IP（IPv6 は別の /64）は止まらない。次の10分の区切りでは通る。上限後の試行で失敗の行が変わらない |
+| SEC-3 | 鍵が通った後の誤り（`INPUT_*`、`NOT_FOUND_ADMIN`、`RULE_ADMIN_ID_DUPLICATE`）では失敗が増えない |
+| SEC-3 | 本文が壊れていて鍵も違うときは `AUTH_MAINT_KEY_INVALID`（鍵が先）。`Origin` がなくても、違っても断らない |
+| RSV-23 | 同じ ID の作成を2つ同時に送ると、片方が成功し、もう片方が `RULE_ADMIN_ID_DUPLICATE` |
+| LOG-4 | 成功すると `events` に `actor_kind = 'maint'` の行が1つでき、`detail` に `login_id`・`display_name` だけがある。`events`・`auth_failures` のどの列にも、パスワード・鍵の値が入っていない |
+| API | 先頭に BOM の付いた UTF-8 の本文を読める。断る要求では `admins`・`events` に何も書かれていない |
+| API | PBKDF2 は、断る要求では呼ばれない（テストで計算の関数を差し替えて数える） |
 
 ## 採らなかった案
 
@@ -169,3 +317,8 @@ API を変えるときの決まり：
 | Worker でも経路や認証を確かめる | 処理が2か所に分かれ（architecture.md 採らなかった案）、版の食い違いの影響も受ける |
 | 画面と台帳で版の番号を突き合わせる | 上の 5 |
 | 保守用の鍵を本文や URL に入れる | 上の 6 |
+| 保守用の API でも、本文の誤りを鍵より先に返す | 鍵はヘッダにあり、本文がなくても確かめられる。鍵を知らない相手に入力の形を教えることになる（4） |
+| `MAINT_KEY` の未設定と鍵の誤りを同じコードにする | 学校のアカウントが、シークレットの設定し忘れに気づけない（6.1） |
+| パスワードの設定し直しの相手をパスの login_id で指す | 基本設計の経路（`{id}`）が変わり、管理者の画面からの設定し直しと形がそろわない。番号は応答と Data Studio でわかる（8.2） |
+| 保守用に管理者の一覧の API を足す | 要件にない。Data Studio で足りる（8.2） |
+| PBKDF2 を、ソルトが手元にあるので準備（3.3 の 2）で計算する | 鍵を確かめる前に計算すると、鍵を知らない相手に CPU を使わせる（auth.md 7） |

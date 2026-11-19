@@ -12,6 +12,8 @@
 
 **詳細設計に入った（2026-11-19）。** 方針を決めた（下の「詳細設計の方針」）。rules.md の枠組み（関数の形、2段の関数、store との分担、確かめる順、自動の変化）を書いた（2026-11-19 に開発者が了承）。ルールごとの節は機能ごとの設計で足す。schema.md（表・列・値・索引・初期データ・版の適用）を書いた（2026-11-19 に開発者が了承）。error-codes.md（コードの形と共通のコード、段 5 は `RULE_TIME_ORDER`）と api.md の共通部分（応答と要求の形、Worker と台帳の受け渡し、共通の確かめる順、版の食い違いへの備え、`curl` 手順の形）を書いた（2026-11-19 に開発者が了承）。これで共通の部分は終わり。
 
+**機能ごとの設計の1つ目、保守用の API を書いた（2026-11-19 に開発者が了承）。** api.md 6（鍵の確かめ方、PowerShell の手順）・8.1〜8.3、error-codes.md 3 の7つのコード、rules.md 6.1（`checkAdminCreate`・`checkAdminPasswordReset`）・6.2（`toHalfWidthLower`・`validateLoginId`・`validateName`・`validatePassword`・`clientKey`）、design-values.md（`MAINT_KEY` は43文字以上）。あわせて api.md 4 の例外から保守用の API を外し（鍵はヘッダなので本文の誤りは鍵の後）、time-and-concurrency.md 4 の「包む理由」を直した（結論は同じ）。
+
 **機能を縦に切る順を決めた（2026-11-19 に開発者が決定）。** 実際に使う順に進める：保守用の API（管理者の作成・パスワードの設定し直し）→ 管理者の認証 → 共有された情報の設定 → 利用の開始 → 利用者の入力 → 機器 → 予約の操作。理由：何にも頼らないものから積むので、各段を手元の `wrangler dev` で前の段の結果を使って手で確かめられ、食い違いをその段で設計に戻せる。PBKDF2 と処理全体を `blockConcurrencyWhile` で包む経路（architecture.md 3 の唯一の例外）を、画面のない最初の段で片付けられる。採らなかった案：利用の開始から利用者側を先に進め、管理者側を後に回す。予約のルールには早く着く（確保が4段目、こちらは7段目）が、共有された情報を作る手段が管理者の画面しかないので、管理者側ができるまで利用者の画面を手で通せない。
 
 ## 詳細設計の方針（2026-11-19 に開発者が決定）
@@ -61,7 +63,7 @@
 
 ### 次の作業
 
-1. 最初の機能「保守用の API（`POST /api/maint/admins`、`POST /api/maint/admins/{id}/reset-password`。ADM-2, SEC-3, SEC-4）」の詳細設計（実装はしない）。順は上の「いまの段階」。まず設計を示して了承を得る：本文の項目、管理者の ID・表示用の名前・パスワードの検証（`lib/`）、鍵の比べ方（api.md 6）、試行の制限（`maint`、10分ごとに5回）、`MAINT_KEY` が未設定のときのコード、PBKDF2 を包む経路、記録（`actor_kind = 'maint'`）、PowerShell の手順。コードを error-codes.md 3 に、入出力を api.md 8 に足す。機能ごとに、error-codes.md 3 にコードを、api.md 8 に入出力を足す。RSV-11 の「変更する時刻」の読み方は確認済み（rules.md「要件の読み方」）。機器の機能の設計では、名前の上限（MNG-1。design-values.md に足す）と名前の比べ方（全角・大小。schema.md 2.2）も決める。
+1. 2つ目の機能「管理者の認証（`POST /api/admin/login`、`POST /api/admin/logout`、`GET /api/admin/me`、管理者の API に共通の証明の確かめ方。ADM-2, SEC-3, SEC-4, LOG-4）」の詳細設計（実装はしない）。順は上の「いまの段階」。まず設計を示して了承を得る：本文の項目、確かめる順（api.md 4 の例外。上限 → 本文 → ID とパスワード）、`AUTH_ADMIN_FAILED`（ID がない・パスワードが違うを区別しない。auth.md 8）、失敗の表の `unknown_id_failures`・`wrong_password_failures`・`last_login_id`（schema.md 2.10）、ID がないときも PBKDF2 を計算して時間をそろえるか、`blockConcurrencyWhile` の経路、Cookie（`__Host-dxp_admin`、400日を使うたびに延ばす。auth.md 3）、管理者の API に共通の証明の確かめ方（`AUTH_REQUIRED`・`AUTH_REVOKED`）、記録（`admin_login`・`admin_logout` の `ip`）。保守用の API で決めた `validateLoginId`・`clientKey`・失敗の数え方（api.md 6.1、rules.md 6.2）を使い回す。機能ごとに、error-codes.md 3 にコードを、api.md 8 に入出力を足す。RSV-11 の「変更する時刻」の読み方は確認済み（rules.md「要件の読み方」）。機器の機能の設計では、名前の上限（MNG-1。design-values.md に足す）と名前の比べ方（全角・大小。schema.md 2.2）も決める。
 
 実装の段階（上の「進め方」3）に回すこと：土台（`package.json`・`.nvmrc`・`wrangler.jsonc`・Vitest の設定。Node は手元が v26.13.0、wrangler は spike で 4.163.0 を使った）、台帳の骨組み（api.md 3 の経路の表と共通の流れ、1 の応答、4 の共通の確かめる順）と schema.md 5 の版の適用。api.md 3.4 と schema.md 5.4 の基盤の機能は spike で確かめた（2026-11-19。下の「schema.md で決めた持ち越し事項」）ので、実装では台帳の層のテストに書くだけでよい。GitHub Actions は、実装の段階ではテストのジョブだけを作り、デプロイのジョブは結合テストの後に作る（Cloudflare の API トークンは学校のアカウントが作る。PRE-11 は未定）。
 

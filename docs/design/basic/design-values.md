@@ -10,6 +10,7 @@
 | 試行の制限：共有された情報 | 同じ相手（IP。IPv6 は /64）からの失敗が、10分ごとに200回まで。10分は、時刻を10分で切り捨てた固定の区切り | SEC-3 | [auth.md](auth.md) 7 | 決定（2026-11-17 に20回から変更） |
 | 試行の制限：管理者の認証 | 同上、10分ごとに10回まで | SEC-3 | [auth.md](auth.md) 7 | 決定 |
 | 試行の制限：保守用の API | 同上、10分ごとに5回まで | SEC-3 | [auth.md](auth.md) 7 | 決定 |
+| 保守用の鍵（`MAINT_KEY`）の長さ | 43文字以上（32バイトを base64url にした長さ）。短ければ未設定とみなし、保守用の API はすべて `AUTH_MAINT_DISABLED` で断る | ADM-2, SEC-3 | [../detailed/api.md](../detailed/api.md) 6 | 決定（2026-11-19） |
 | 管理者の認証の期限 | なし（認証を解く操作と ADM-2 の操作でだけ止まる） | ADM-2 | [auth.md](auth.md) 3 | 確認済み |
 | Cookie の期限 | 400日。使うたびに延ばして渡し直す（利用を始めた証明、管理者の認証とも） | USR-2, ADM-2 | [auth.md](auth.md) 3 | 決定 |
 | PBKDF2 の反復回数（管理者のパスワード） | 100,000 回（workerd の上限） | SEC-4 | [auth.md](auth.md) 4、[platform-selection.md](platform-selection.md) 実測の結果 2 | 決定（2026-11-18） |
