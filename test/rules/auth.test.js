@@ -1,6 +1,12 @@
 // 試行の上限（rules.md 6.3）
 import { describe, expect, test } from 'vitest';
-import { checkAdminLogin, checkAdminSession, checkAttemptLimit } from '../../src/rules/auth.js';
+import {
+  checkAdminLogin,
+  checkAdminSession,
+  checkAttemptLimit,
+  checkSharedInfo,
+  checkUserSession,
+} from '../../src/rules/auth.js';
 
 describe('SEC-3 試行の上限（checkAttemptLimit）', () => {
   test('SEC-3 行がなければ受け付ける', () => {
@@ -61,5 +67,42 @@ describe('ADM-2 管理者の証明（checkAdminSession）', () => {
 
   test('ADM-2 証明の行があるのに管理者が null なら例外（バグ）', () => {
     expect(() => checkAdminSession(SESSION, null)).toThrow();
+  });
+});
+
+describe('USR-2 利用の開始（checkSharedInfo）', () => {
+  const CURRENT = { id: 3, hash: new Uint8Array(32) };
+
+  test('USR-2 現在の行があり、値が一致すれば受け付ける', () => {
+    expect(checkSharedInfo(CURRENT, true)).toEqual({ ok: true });
+  });
+
+  test('USR-2 未設定なら AUTH_SHARED_INFO_UNSET で、failure を付けない（数えない）', () => {
+    expect(checkSharedInfo(null, false)).toEqual({ ok: false, code: 'AUTH_SHARED_INFO_UNSET' });
+  });
+
+  test('USR-2 値が一致しなければ AUTH_SHARED_INFO_WRONG（failure: wrong）', () => {
+    expect(checkSharedInfo(CURRENT, false)).toEqual({ ok: false, code: 'AUTH_SHARED_INFO_WRONG', failure: 'wrong' });
+  });
+});
+
+describe('ADM-3 利用者の証明（checkUserSession）', () => {
+  const SESSION = { id: 1, shared_info_id: 3 };
+
+  test('ADM-3 始めた版が現在の版と同じなら受け付ける', () => {
+    expect(checkUserSession(SESSION, 3)).toEqual({ ok: true });
+  });
+
+  test('USR-2 証明の行がなければ AUTH_REQUIRED', () => {
+    expect(checkUserSession(null, 3)).toEqual({ ok: false, code: 'AUTH_REQUIRED' });
+    expect(checkUserSession(null, null)).toEqual({ ok: false, code: 'AUTH_REQUIRED' });
+  });
+
+  test('ADM-3 始めた版が現在の版より小さければ AUTH_REVOKED', () => {
+    expect(checkUserSession(SESSION, 4)).toEqual({ ok: false, code: 'AUTH_REVOKED' });
+  });
+
+  test('ADM-3 証明の行があるのに現在の版が null なら例外（バグ）', () => {
+    expect(() => checkUserSession(SESSION, null)).toThrow();
   });
 });

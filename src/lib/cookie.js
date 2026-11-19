@@ -1,6 +1,7 @@
-// Cookie の読み取りと Set-Cookie の値（docs/design/detailed/rules.md 6.3、docs/design/basic/auth.md 3。ADM-2）
+// Cookie の読み取りと Set-Cookie の値（docs/design/detailed/rules.md 6.3、docs/design/basic/auth.md 3。ADM-2, USR-2）
 
 export const ADMIN_COOKIE = '__Host-dxp_admin';
+export const USER_COOKIE = '__Host-dxp_user';
 
 // 400日（auth.md 3）。使うたびに同じ値で送り直して延ばす
 const MAX_AGE = 34_560_000;
@@ -26,6 +27,11 @@ export function isTokenFormat(s) {
 
 export function adminCookie(value) {
   return `${ADMIN_COOKIE}=${value}; Max-Age=${MAX_AGE}; ${ATTRIBUTES}`;
+}
+
+// 利用を始めた証明（USR-2）。属性は adminCookie と同じ。利用者には認証を解く操作がないので、消す関数は作らない
+export function userCookie(value) {
+  return `${USER_COOKIE}=${value}; Max-Age=${MAX_AGE}; ${ATTRIBUTES}`;
 }
 
 // 認証を解いた端末の Cookie を消す

@@ -1,13 +1,15 @@
 // 共3：認証（docs/design/detailed/api.md 4・6.1、docs/design/basic/auth.md 1）
 // 準備（await が要る）と、同期の区間での確かめ方を分ける。認証の種類ごとの確かめ方は、それぞれの機能の実装で足す
 import { clientKey } from '../lib/client.js';
-import { ADMIN_COOKIE, isTokenFormat, readCookie } from '../lib/cookie.js';
+import { ADMIN_COOKIE, USER_COOKIE, isTokenFormat, readCookie } from '../lib/cookie.js';
 import { equalBytes, sha256 } from '../lib/hash.js';
 import { windowStart } from '../lib/time.js';
-import { ATTEMPT_LIMITS, checkAdminSession, checkAttemptLimit } from '../rules/auth.js';
+import { ATTEMPT_LIMITS, checkAdminSession, checkAttemptLimit, checkUserSession } from '../rules/auth.js';
 import { findAdminSessionByHash } from '../store/admin-sessions.js';
 import { findAdminById } from '../store/admins.js';
 import { findAuthFailure, recordAuthFailure } from '../store/auth-failures.js';
+import { findCurrentSharedInfo } from '../store/shared-infos.js';
+import { findUserSessionByHash } from '../store/user-sessions.js';
 
 // 保守用の鍵の最短の長さ。32バイトを base64url にした長さ。短ければ未設定とみなす（design-values.md）
 export const MIN_MAINT_KEY_LENGTH = 43;
@@ -15,13 +17,11 @@ export const MIN_MAINT_KEY_LENGTH = 43;
 const BEARER = 'Bearer ';
 
 // 準備（api.md 3.3 の 2）。保守用の API では、鍵とヘッダの値の SHA-256 を求める（api.md 6.1）。
-// 管理者の API では、Cookie の値とその SHA-256 を求める。形が違う値は Cookie がないものとする（api.md 8.5 の 1）
+// 管理者・利用者の API では、Cookie の値とその SHA-256 を求める。形が違う値は Cookie がないものとする
+// （api.md 8.5 の 1・8.12 の 1）
 export async function prepareAuth(kind, request, env) {
-  if (kind === 'admin') {
-    const token = readCookie(request.headers.get('Cookie'), ADMIN_COOKIE);
-    if (!isTokenFormat(token)) return { token: null, tokenHash: null };
-    return { token, tokenHash: await sha256(token) };
-  }
+  if (kind === 'admin') return prepareCookie(request, ADMIN_COOKIE);
+  if (kind === 'user') return prepareUserCookie(request);
   if (kind !== 'maint') return {};
   const key = env.MAINT_KEY;
   const enabled = typeof key === 'string' && key.length >= MIN_MAINT_KEY_LENGTH;
@@ -37,13 +37,16 @@ export async function prepareAuth(kind, request, env) {
   };
 }
 
-// 同期の区間で確かめる。通れば { ok: true }（管理者の API では admin と sessionId も）、断るなら { ok: false, code }
+// 同期の区間で確かめる。通れば { ok: true }（管理者の API では admin と sessionId、利用者の API では sessionId も）、
+// 断るなら { ok: false, code }
 export function checkAuth(kind, { storage, request, prepared, now }) {
   switch (kind) {
     case 'public':
       return { ok: true };
     case 'admin':
       return checkAdmin(storage.sql, prepared);
+    case 'user':
+      return checkUserCookie(storage.sql, prepared);
     case 'maint':
       return checkMaint(storage, request, prepared, now);
     default:
@@ -79,4 +82,25 @@ function checkAdmin(sql, prepared) {
   const decision = checkAdminSession(session, admin);
   if (!decision.ok) return decision;
   return { ok: true, admin, sessionId: session.id };
+}
+
+async function prepareCookie(request, name) {
+  const token = readCookie(request.headers.get('Cookie'), name);
+  if (!isTokenFormat(token)) return { token: null, tokenHash: null };
+  return { token, tokenHash: await sha256(token) };
+}
+
+// 利用者の Cookie の準備（api.md 8.12 の 1）。利用の開始（8.11）と GET /api/session（8.13）でも使う
+export function prepareUserCookie(request) {
+  return prepareCookie(request, USER_COOKIE);
+}
+
+// 利用者の証明（api.md 8.12 の 2。USR-2, ADM-3）。失敗として数えない。
+// 利用の開始の有効な証明の確認（8.11）と GET /api/session（8.13）でも使う
+export function checkUserCookie(sql, prepared) {
+  const session = prepared.tokenHash === null ? null : findUserSessionByHash(sql, prepared.tokenHash);
+  const current = findCurrentSharedInfo(sql);
+  const decision = checkUserSession(session, current === null ? null : current.id);
+  if (!decision.ok) return decision;
+  return { ok: true, sessionId: session.id };
 }

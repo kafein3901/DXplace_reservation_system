@@ -8,6 +8,8 @@ const COMMON = {
   INPUT_BODY: RELOAD,
   AUTH_REQUIRED: 'QR コードを読んでください。',
   AUTH_REVOKED: 'QR コードが新しくなりました。読み直してください。',
+  AUTH_SHARED_INFO_UNSET: 'まだ利用を始められません。管理者に確かめてください。',
+  AUTH_SHARED_INFO_WRONG: 'QR コードが古いか、正しくありません。掲示されている QR コードを読み直してください。',
   LIMIT_ATTEMPTS: '失敗が続いたため、しばらく受け付けません。10分ほどおいてから試してください。',
   AUTH_ADMIN_FAILED: 'ID かパスワードが違います。',
 };

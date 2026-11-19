@@ -1,6 +1,6 @@
 // Cookie の読み取りと Set-Cookie の値（rules.md 6.3、auth.md 3）
 import { describe, expect, test } from 'vitest';
-import { adminCookie, clearAdminCookie, isTokenFormat, readCookie } from '../../src/lib/cookie.js';
+import { adminCookie, clearAdminCookie, isTokenFormat, readCookie, userCookie } from '../../src/lib/cookie.js';
 
 const TOKEN = 'A'.repeat(20) + 'z09-_' + 'b'.repeat(18); // 43文字
 
@@ -42,5 +42,19 @@ describe('ADM-2 Set-Cookie の値', () => {
 
   test('ADM-2 clearAdminCookie は値を空にして Max-Age=0', () => {
     expect(clearAdminCookie()).toBe('__Host-dxp_admin=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict');
+  });
+});
+
+describe('USR-2 利用者の Cookie', () => {
+  test('USR-2 userCookie は __Host-dxp_user の名前と、adminCookie と同じ属性を付ける', () => {
+    expect(userCookie(TOKEN)).toBe(`__Host-dxp_user=${TOKEN}; Max-Age=34560000; Path=/; Secure; HttpOnly; SameSite=Strict`);
+  });
+
+  test('USR-2 管理者の Cookie と並んでいても、利用者の値だけを取り出せる', () => {
+    const other = 'c'.repeat(43);
+    const header = `__Host-dxp_admin=${other}; __Host-dxp_user=${TOKEN}`;
+    expect(readCookie(header, '__Host-dxp_user')).toBe(TOKEN);
+    expect(readCookie(header, '__Host-dxp_admin')).toBe(other);
+    expect(readCookie(`__Host-dxp_admin=${other}`, '__Host-dxp_user')).toBeNull();
   });
 });

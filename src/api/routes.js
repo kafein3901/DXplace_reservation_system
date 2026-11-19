@@ -7,7 +7,8 @@
 //   wrap：処理全体を blockConcurrencyWhile で包むか（PBKDF2 を使う操作だけ。time-and-concurrency.md 4）
 //   handler：src/api/ の関数。共通の流れ（ledger.js の handle）の後の部分だけを書く
 //   ownBodyCheck：真なら handle は共4 を確かめず、処理が上限 → 本文 → 認証の値の順に確かめる（api.md 4 の例外）。省略は偽
-//   prepare：省略できる。その API だけの await が要る準備。結果は処理に routePrepared として渡る
+//   prepare：省略できる。その API だけの await が要る準備。{ request, body }（body は読んだ結果）を受け取り、
+//     結果は処理に routePrepared として渡る
 //
 // API は機能ごとの実装で足す。
 //
@@ -15,6 +16,7 @@
 // 本番の台帳は既定の部品で作った ROUTES だけを使う
 import { login, logout, me, prepareLogin } from './admin-auth.js';
 import { createAdminByMaint, resetAdminPasswordByMaint } from './maint.js';
+import { prepareSession, prepareSessionStatus, sessionStatus, startSession } from './session.js';
 import { prepareSharedInfo, setSharedInfo } from './shared-info.js';
 import { pbkdf2 } from '../lib/hash.js';
 
@@ -55,6 +57,24 @@ export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
       wrap: false,
       prepare: prepareSharedInfo,
       handler: setSharedInfo,
+    },
+    // 利用の開始（api.md 8.11・8.13。USR-2）。認証の種類は「誰でも」で、利用者の証明は処理が確かめる
+    {
+      method: 'POST',
+      path: '/api/session',
+      auth: 'public',
+      wrap: false,
+      ownBodyCheck: true,
+      prepare: prepareSession,
+      handler: startSession,
+    },
+    {
+      method: 'GET',
+      path: '/api/session',
+      auth: 'public',
+      wrap: false,
+      prepare: prepareSessionStatus,
+      handler: sessionStatus,
     },
   ];
 }

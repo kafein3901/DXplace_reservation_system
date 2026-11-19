@@ -1,4 +1,4 @@
-// 認証の判定（docs/design/detailed/rules.md 6.3。SEC-3）
+// 認証の判定（docs/design/detailed/rules.md 6.3。ADM-2, USR-2, ADM-3, SEC-3）
 
 // 入口ごとの試行の上限（10分の区切りごとの失敗の数。design-values.md、auth.md 7）
 export const ATTEMPT_LIMITS = {
@@ -34,5 +34,24 @@ export function checkAdminSession(session, admin) {
   if (session.ended_at !== null || admin.deleted_at !== null || session.password_version !== admin.password_version) {
     return { ok: false, code: 'AUTH_REVOKED' };
   }
+  return { ok: true };
+}
+
+// 利用の開始（USR-2）。current：現在の共有された情報の行（shared_infos の id の最も大きい行。なければ null）、
+// matches：送られた値の SHA-256 がその行の hash と等しかったか（値の形が違う、行がないときは偽）。
+// 未設定は試行にならないので failure を付けない。failure があるときだけ api/ が失敗を数える（api.md 8.11）
+export function checkSharedInfo(current, matches) {
+  if (current === null) return { ok: false, code: 'AUTH_SHARED_INFO_UNSET' };
+  if (!matches) return { ok: false, code: 'AUTH_SHARED_INFO_WRONG', failure: 'wrong' };
+  return { ok: true };
+}
+
+// 利用者の証明（USR-2, ADM-3）。session：Cookie の値のハッシュで引いた user_sessions の行（なければ null）、
+// currentVersion：現在の共有された情報の版（shared_infos の最も大きい id。なければ null）
+export function checkUserSession(session, currentVersion) {
+  if (session === null) return { ok: false, code: 'AUTH_REQUIRED' };
+  // shared_infos の行は消さず、shared_info_id に REFERENCES があるので、ここで null になるのはバグ（rules.md 1.1）
+  if (currentVersion === null) throw new Error('証明の行があるのに共有された情報の行がない');
+  if (session.shared_info_id !== currentVersion) return { ok: false, code: 'AUTH_REVOKED' };
   return { ok: true };
 }

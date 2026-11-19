@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DXプレイス予約システム</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 上の帯（screens.md 3.1）。利用の開始の画面では隠す。画面のボタンは機能ごとの実装で足す -->
+  <nav id="bar" hidden>
+    <button type="button" data-screen="day">予約状況</button>
+    <span id="user-label">操作する人：未入力</span>
+  </nav>
+
+  <!-- 利用の開始（screens.md 3.2。USR-2）。入力欄もボタンも置かない。値は QR コードの URL からだけ受け取る -->
+  <section id="screen-start" hidden>
+    <h1>DXプレイス予約システム</h1>
+    <p class="message"></p>
+  </section>
+
+  <!-- 予約状況（screens.md 3.4。VIW-1）。中身は予約状況の実装で足す -->
+  <section id="screen-day" hidden>
+    <h1>予約状況</h1>
+    <p class="message"></p>
+  </section>
+
+  <script type="module" src="js/user.js"></script>
+</body>
+</html>
