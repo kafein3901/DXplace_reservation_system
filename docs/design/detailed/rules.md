@@ -1,6 +1,6 @@
 # ルールの判定
 
-- 状態：作成中（枠組みを決定。ルールごとの節は、機能ごとの設計で足す。6.10 まで決定）
+- 状態：作成中（枠組みを決定。ルールごとの節は、機能ごとの設計で足す。6.11 まで決定）
 - 日付：2026-11-19
 - 関係する要件：RSV-1〜RSV-27, TIM-1〜TIM-7, MNG-1〜MNG-3, ADM-2, USR-3〜USR-7, SEC-3, NFR-4
 - 前提：[architecture.md](../basic/architecture.md)（手順 1〜7、`rules/` は純粋な関数）、[time-and-concurrency.md](../basic/time-and-concurrency.md)（`nowMin`、自動の変化の反映）、[domain-model.md](../basic/domain-model.md)（状態の移り方、数値の履歴）、[screens-and-api.md](../basic/screens-and-api.md) 7（コードは1つだけ返す）
@@ -86,7 +86,7 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 - 1 は `api/` が `lib/` を呼んで確かめ、2〜8 は操作ごとの関数が確かめる。手順の位置は architecture.md 3 の 4・5 に当たる。認証（手順 2）と自動の変化の反映（手順 3）は、この順より前に済んでいる。
 - 5 は、変更では変えない側の時刻と合わせて比べる。利用終了には当てはめない（TIM-7。長さ0を認める）。
 - 重なりは、予約済・利用中の予約だけを対象にし（RSV-1）、`[開始, 終了)` どうしで比べる（TIM-2）。時間帯の変更と利用開始では、その予約自身を除く。
-- RSV-20（空いている）は、`[nowMin, 終了)` の重なりの判定に含まれる。別のコードにするかは、予約なしの利用の設計で決める。
+- RSV-20（空いている）は、`[nowMin, 終了)` の重なりの判定に含まれるが、別のコード `RULE_DEVICE_BUSY` にし、重なりより先に確かめる（6.11）。
 - 操作によって当てはまらない段は飛ばす（例：取消には 4〜8 がない）。操作ごとに、どの段で何を確かめるかを下の 6 に書く。
 
 ## 5. 自動の変化
@@ -133,7 +133,7 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 時刻の形式と日本時間（`lib/time.js`） | TIM-1〜TIM-4, TIM-6 | 済（6.8） |
 | 予約状況 | VIW-1, VIW-2 | 済（6.9。api.md 8.24） |
 | 確保 | RSV-2〜RSV-6 | 済（6.10。api.md 8.25） |
-| 予約なしの利用 | RSV-17, RSV-20 | 未 |
+| 予約なしの利用 | RSV-17, RSV-20 | 済（6.11。api.md 8.27） |
 | 時間帯の変更 | RSV-9〜RSV-12 | 未 |
 | 取消 | RSV-8 | 未 |
 | 利用開始 | RSV-14〜RSV-16 | 未 |
@@ -457,6 +457,54 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | RSV-2（`checkReserve`） | すべての段を通る入力 | `user` が `null`（`NOT_FOUND_USER`）。`device` が `null`・削除済み（`NOT_FOUND_DEVICE`） |
 | RSV-27（`checkReserve` の順） | ― | `user` が `null` で機器も削除済み → `NOT_FOUND_USER`。過去かつ長さ超え → `RULE_PAST`。終了 = 開始かつ件数超え → `RULE_TIME_ORDER`。長さ超えかつ件数超え → `RULE_LENGTH`。件数超えかつ重なり → `RULE_COUNT`。機器が削除済みかつ過去 → `NOT_FOUND_DEVICE` |
 
+### 6.11 予約なしの利用（`src/rules/reservations.js`。RSV-17, RSV-20, RSV-3, RSV-6, TIM-4, TIM-6）
+
+要件ごとの関数（2）を1つ足す。ほかは 6.10 の関数を使う。
+
+| 関数 | 段 | 確かめること | コード |
+| --- | --- | --- | --- |
+| `checkVacant(deviceActive, nowMin)` | 8 | `deviceActive` のうち、状態が `reserved`・`in_use` で `r.start_at <= nowMin かつ nowMin < r.end_at` のものが1件もない（RSV-20「現在時刻を含む確保済みの時間帯がない」、TIM-2） | `RULE_DEVICE_BUSY` |
+
+操作ごとの関数：
+
+| 関数 | 引数 |
+| --- | --- |
+| `checkWalkIn({ user, device, end, nowMin, settings, deviceActive })` | `user`・`device`・`settings`・`deviceActive`：`checkReserve`（6.10）と同じ。`end`：6.8 で直したミリ秒。開始時刻は受け取らない |
+
+| 段 | 確かめること | コード |
+| --- | --- | --- |
+| 1 | （`api/` が先に確かめる）`validateRole` → `validateStudentId` → `parseDateTime(end)` | `INPUT_ROLE`・`INPUT_STUDENT_ID`・`INPUT_TIME` |
+| 2 | `user` が `null` でない → `checkDeviceActive(device)` | `NOT_FOUND_USER` → `NOT_FOUND_DEVICE` |
+| 3 | なし（新しく作るので状態がない） | ― |
+| 4 | `checkEndNotPast(end, nowMin)` | `RULE_PAST` |
+| 5 | なし（下の注） | ― |
+| 6 | `checkLength(nowMin, end, settingAt(settings, 'max_length_minutes', nowMin))` | `RULE_LENGTH` |
+| 7 | なし（件数に数えない。RSV-17） | ― |
+| 8 | `checkVacant(deviceActive, nowMin)` → `checkOverlap(deviceActive, nowMin, end, null)` | `RULE_DEVICE_BUSY` → `RULE_OVERLAP` |
+
+受け付けるときは `{ ok: true, start: nowMin }` を返す（1.1 の「ルールで決まる値」。TIM-4）。`api/` はこの `start` をそのまま `start_at` に書く。
+
+- **開始時刻は `nowMin` で、入力から受け取らない（RSV-17, TIM-4, RSV-24）。** 開始が `nowMin` なので `checkStartNotPast` は必ず通り、呼ばない。
+- **段 5 を確かめない。** 開始が `nowMin` なので、段 4 の `end > nowMin` を通れば `end > start` は必ず成り立ち、`RULE_TIME_ORDER` で断ることがない。テストで断る場合を作れない判定を置かない（2026-11-19 に開発者が了承）。
+- **RSV-20 を `RULE_OVERLAP` と別のコードにする（2026-11-19 に開発者が了承）。** RSV-20 の条件は `[nowMin, end)` の重なりに含まれるので判定としては `RULE_OVERLAP` だけで足りるが、利用者が「今は使えない」のか「終了時刻を早めれば使える」のかを見分けられるようにする（RSV-27）。空いていないことは終了時刻を変えても直らないので、重なりより先に確かめる。
+- **`RULE_DEVICE_BUSY` は `RULE_DEVICE_IN_USE`（MNG-2）と別。** 空いていないのは利用中の予約に限らず、現在時刻を含む予約済（猶予の間で利用開始の前）でも空いていない。
+- **自分の予約が現在時刻にかかっていても `RULE_DEVICE_BUSY`。** RSV-3 は同じ人の予約どうしも含む。自分の予約なら利用開始を使う（画面の案内は screens.md）。
+- **件数を数えない（RSV-17）。** 利用者の予約は引かず、上限もない。同じ人が別の機器で同時に予約なしの利用をすることは妨げない（RSV-3「別の機器であれば」）。
+- **長さの上限は `nowMin` の時点の値（3.1、RSV-6）。**
+- **自動の変化を反映した後のデータで判定する（5.3）。** 終了時刻がちょうど `nowMin` の利用中、猶予の終わりがちょうど `nowMin` の予約済は、すでに解放されていて妨げない（RSV-22）。
+
+テストの観点（ルールの層）。時刻は例として `nowMin` = 10:00、長さの上限は初期値（1440分）：
+
+| ID | 受け付ける | 断る |
+| --- | --- | --- |
+| RSV-20（`checkVacant`） | 予約がない。既存 [9:00, 10:00)（ちょうど `nowMin` に終わる）、[10:01, 11:00)。既存 [9:00, 11:00) が取消・無断不使用・終了・管理者による取消・管理者による終了 | 既存 [9:00, 11:00) が利用中、予約済。既存 [10:00, 11:00)（ちょうど `nowMin` に始まる）。どれも `RULE_DEVICE_BUSY` |
+| RSV-17（`checkWalkIn`） | すべての段を通る入力で `start` が `nowMin`。終了 10:01 | `user` が `null`（`NOT_FOUND_USER`）。`device` が `null`・削除済み（`NOT_FOUND_DEVICE`） |
+| TIM-6（`checkWalkIn`） | 終了 10:01 | 終了 10:00（ちょうど `nowMin`）、9:59。どちらも `RULE_PAST`（`RULE_TIME_ORDER` にならない） |
+| RSV-6（`checkWalkIn`） | 終了が翌日 10:00（1440分） | 翌日 10:01（`RULE_LENGTH`） |
+| RSV-3（`checkWalkIn`） | 既存の予約済 [10:30, 11:00) に対して終了 10:30 | 同じ既存に対して終了 10:31（`RULE_OVERLAP`）。自分の予約でも断る |
+| RSV-17（件数） | 予約済・利用中が上限（3件）ある利用者でも受け付ける | ― |
+| RSV-27（`checkWalkIn` の順） | ― | `user` が `null` で機器も削除済み → `NOT_FOUND_USER`。過去かつ空いていない → `RULE_PAST`。長さ超えかつ空いていない → `RULE_LENGTH`。空いていないかつ後の予約とも重なる → `RULE_DEVICE_BUSY` |
+
 ## 7. 共通のテストの観点
 
 | 対象 | 観点 |
@@ -487,6 +535,8 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 長さ0の利用を重なりの式どおりどの日にも出さない | 0:00 ちょうどに始めて終えた利用が表示されず、VIW-1「利用があった予約も表示する」に反する（6.9） |
 | 台帳が空きの時間帯も計算して返す | 表示のためだけの値で、確保できるかは段 8 で決まる。画面がすき間から描けば足りる（6.9） |
 | `RULE_PAST` を開始と終了で分ける | 画面は入力と `now` からどちらの欄かわかる。コードが増えるだけ（6.10） |
+| RSV-20 を `RULE_OVERLAP` にまとめる | 利用者が、今は使えないのか、終了時刻を早めれば使えるのかを見分けられない（6.11） |
+| 予約なしの利用でも段 5（`RULE_TIME_ORDER`）を確かめる | 段 4 を通れば必ず成り立ち、断る場合をテストで作れない（6.11） |
 
 ## 要件の読み方（確認済み）
 

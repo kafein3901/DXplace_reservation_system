@@ -2,7 +2,7 @@
 
 - 状態：作成中（形と共通のコードを決定。機能ごとのコードは、機能ごとの設計で足す）
 - 日付：2026-11-19
-- 関係する要件：RSV-27, TIM-3, TIM-6, TIM-7, RSV-3〜RSV-6, VIW-1, USR-1〜USR-6, MNG-1, MNG-2, ADM-2, ADM-3, SEC-3, NFR-4, FUT-1
+- 関係する要件：RSV-27, TIM-3, TIM-6, TIM-7, RSV-3〜RSV-6, RSV-17, RSV-20, VIW-1, USR-1〜USR-6, MNG-1, MNG-2, ADM-2, ADM-3, SEC-3, NFR-4, FUT-1
 - 前提：[screens-and-api.md](../basic/screens-and-api.md) 7（応答の形、頭と HTTP、コードは1つだけ）、[rules.md](rules.md) 1, 4（戻り値の形、確かめる順）、[api.md](api.md) 4（API に共通の確かめる順）、[auth.md](../basic/auth.md) 3, 8
 
 ここでは、理由のコードの一覧の形と、すべての API に共通のコードを決める。コードは `rules/`・`lib/`・`api/` が返し、画面の `public/js/messages.js` が文に直す。
@@ -45,12 +45,12 @@
 | `INPUT_STUDENT_ID` | USR-4 | 利用者の入力、利用者の操作の API | 1 | 学籍番号が、そろえた後に、選んだ側（生徒・教員）の形式に合わない（rules.md 6.4） |
 | `INPUT_COHORT` | USR-6 | 利用者の入力 | 1 | 生徒で、期生がない、数値でない、1以上の整数でない（rules.md 6.4）。教員では返さない（送られても無視する） |
 | `INPUT_DEVICE_NAME` | MNG-1 | 機器の追加・名前の変更（`POST /api/admin/devices`、`…/{id}/rename`） | 1 | 機器の名前が、前後の空白を除いて1〜30文字でない、または改行・制御文字を含む（rules.md 6.6、design-values.md） |
-| `INPUT_TIME` | TIM-3 | 確保（`POST /api/reservations`） | 1 | 境界の時刻が `YYYY-MM-DDTHH:mm` の形でない（秒・タイムゾーン付きを含む）、またはありえない日時（`02-30`、`24:00` など）（rules.md 6.8）。予約なしの利用・時間帯の変更でも使う（その機能の設計で「返す API」に足す） |
+| `INPUT_TIME` | TIM-3 | 確保（`POST /api/reservations`）、予約なしの利用（`POST /api/walk-ins`） | 1 | 境界の時刻が `YYYY-MM-DDTHH:mm` の形でない（秒・タイムゾーン付きを含む）、またはありえない日時（`02-30`、`24:00` など）（rules.md 6.8）。時間帯の変更でも使う（その機能の設計で「返す API」に足す） |
 | `INPUT_DATE` | VIW-1 | 予約状況（`GET /api/devices/{id}/day`） | 1 | クエリの `date` がない、`YYYY-MM-DD` の形でない、またはありえない日（rules.md 6.8） |
 
 - `INPUT_COHORT` は、項目の型の誤りも含む。期生は要るかどうかが生徒か教員かで変わるので、共4 の `INPUT_BODY` ではなく段 1 で確かめる（rules.md 6.4）。`role`・`student_id`・`name` の型の誤りは `INPUT_BODY`。
 
-ほかの項目ごとの形式のコードは、機能ごとの設計で足す。確保の本文の `device_id` が正の整数でないときは、項目の型の誤りとして `INPUT_BODY` にする（api.md 8.25）。管理者の画面からの作成・設定し直しも、上の3つを同じ意味で返す（その機能の設計で「返す API」に足す）。
+ほかの項目ごとの形式のコードは、機能ごとの設計で足す。確保・予約なしの利用の本文の `device_id` が正の整数でないときは、項目の型の誤りとして `INPUT_BODY` にする（api.md 8.25、8.27）。管理者の画面からの作成・設定し直しも、上の3つを同じ意味で返す（その機能の設計で「返す API」に足す）。
 
 ### 3.2 `AUTH_`（401）
 
@@ -84,8 +84,8 @@
 | --- | --- | --- | --- | --- |
 | `NOT_FOUND_API` | RSV-27 | すべて | 共1 | そのメソッドとパスの API がない。パスの `{id}` が正の整数の形でないときも含む |
 | `NOT_FOUND_ADMIN` | ADM-2 | パスワードの設定し直し（保守用） | 2 | その番号の管理者がいない、または削除されている（rules.md 6.1） |
-| `NOT_FOUND_USER` | USR-3, USR-4 | 利用者の操作の API（api.md 8.16。`POST /api/me` を除く。確保（api.md 8.25）で確かめる） | 2 | 送られた識別の組（生徒か教員か・そろえた学籍番号）の利用者がいない（`POST /api/me` をまだしていない）。段 2 の最初に確かめる |
-| `NOT_FOUND_DEVICE` | MNG-1, MNG-2, VIW-1, RSV-2 | 機器の名前の変更・削除（`POST /api/admin/devices/{id}/rename`、`…/delete`）、予約状況（`GET /api/devices/{id}/day`）、確保（`POST /api/reservations`） | 2 | その番号の機器がない、または削除されている（rules.md 6.7、6.9 の `checkDeviceActive`）。予約なしの利用でも使う（その機能の設計で「返す API」に足す） |
+| `NOT_FOUND_USER` | USR-3, USR-4 | 利用者の操作の API（api.md 8.16。`POST /api/me` を除く。確保（api.md 8.25）・予約なしの利用（8.27）で確かめる） | 2 | 送られた識別の組（生徒か教員か・そろえた学籍番号）の利用者がいない（`POST /api/me` をまだしていない）。段 2 の最初に確かめる |
+| `NOT_FOUND_DEVICE` | MNG-1, MNG-2, VIW-1, RSV-2 | 機器の名前の変更・削除（`POST /api/admin/devices/{id}/rename`、`…/delete`）、予約状況（`GET /api/devices/{id}/day`）、確保（`POST /api/reservations`）、予約なしの利用（`POST /api/walk-ins`） | 2 | その番号の機器がない、または削除されている（rules.md 6.7、6.9 の `checkDeviceActive`） |
 
 - `NOT_FOUND_USER` を受けた画面は、利用者の入力の画面に移る。利用者がいるかどうかが外からわかるが、利用者の入力をすればだれでも作れるので、隠しても守れるものがない（PRE-1）。
 
@@ -99,15 +99,17 @@
 
 | コード | 要件 | 返す API | 段 | 意味 |
 | --- | --- | --- | --- | --- |
-| `RULE_PAST` | TIM-6, RSV-5 | 確保（`POST /api/reservations`） | 4 | 新たに指定する開始時刻が `nowMin` より前、または終了時刻が `nowMin` 以前。開始と終了を区別しない（rules.md 6.10）。予約なしの利用・時間帯の変更でも使う |
-| `RULE_TIME_ORDER` | TIM-7, RSV-5 | 確保（`POST /api/reservations`）、時間帯の変更、予約なしの利用 | 5 | 終了が開始より後でない。時間帯の変更では、変えない側の保存してある時刻と合わせて比べる。利用終了には当てはめない（TIM-7） |
+| `RULE_PAST` | TIM-6, RSV-5, RSV-17 | 確保（`POST /api/reservations`）、予約なしの利用（`POST /api/walk-ins`） | 4 | 新たに指定する開始時刻が `nowMin` より前、または終了時刻が `nowMin` 以前。開始と終了を区別しない（rules.md 6.10）。予約なしの利用では終了時刻だけ（rules.md 6.11）。時間帯の変更でも使う |
+| `RULE_TIME_ORDER` | TIM-7, RSV-5 | 確保（`POST /api/reservations`）、時間帯の変更 | 5 | 終了が開始より後でない。時間帯の変更では、変えない側の保存してある時刻と合わせて比べる。利用終了には当てはめない（TIM-7）。予約なしの利用では返さない（開始が `nowMin` なので段 4 を通れば必ず成り立つ。rules.md 6.11） |
 | `RULE_ADMIN_ID_DUPLICATE` | ADM-2, RSV-23 | 管理者の作成（保守用） | 8 | そろえた後の管理者の ID が、ほかの管理者（削除した管理者を含む）の ID と同じ（rules.md 6.1） |
 | `RULE_DEVICE_NAME_DUPLICATE` | MNG-1, RSV-23 | 機器の追加・名前の変更 | 8 | 前後の空白を除いた名前が、削除していないほかの機器の名前と完全に一致する（全角・大小はそろえない。rules.md 6.7） |
 | `RULE_DEVICE_IN_USE` | MNG-2, RSV-23 | 機器の削除 | 8 | その機器に利用中の予約がある（自動の変化を反映した後。rules.md 6.7） |
-| `RULE_LENGTH` | RSV-6 | 確保 | 6 | 時間帯の長さが、`nowMin` の時点の長さの上限を超える（rules.md 6.10）。予約なしの利用・時間帯の変更・利用開始でも使う |
+| `RULE_LENGTH` | RSV-6 | 確保、予約なしの利用 | 6 | 時間帯の長さが、`nowMin` の時点の長さの上限を超える（rules.md 6.10、6.11）。時間帯の変更・利用開始でも使う |
 | `RULE_COUNT` | RSV-4, RSV-5, RSV-23 | 確保 | 7 | その利用者の予約済・利用中（予約なしの利用で始めたものを除く。全機器）の件数が、`nowMin` の時点の件数の上限に達している（rules.md 6.10） |
-| `RULE_OVERLAP` | RSV-3, RSV-23 | 確保 | 8 | その機器の予約済・利用中の予約と時間帯が重なる（同じ人の予約を含む。rules.md 6.10）。時間帯の変更・利用開始・予約なしの利用でも使うかは、その機能の設計で決める |
+| `RULE_OVERLAP` | RSV-3, RSV-23 | 確保、予約なしの利用 | 8 | その機器の予約済・利用中の予約と時間帯が重なる（同じ人の予約を含む。rules.md 6.10）。予約なしの利用では、空いている（`RULE_DEVICE_BUSY` でない）が `[nowMin, 終了)` が後の予約と重なるとき（rules.md 6.11）。時間帯の変更・利用開始でも使うかは、その機能の設計で決める |
+| `RULE_DEVICE_BUSY` | RSV-20, RSV-17, RSV-23 | 予約なしの利用（`POST /api/walk-ins`） | 8 | その機器に、`nowMin` を含む予約済・利用中の予約がある（機器が空いていない。自分の予約を含む）。`RULE_OVERLAP` より先に確かめる（rules.md 6.11） |
 
+- `RULE_DEVICE_BUSY` を `RULE_OVERLAP` と分けるのは、利用者が「今は使えない」のか「終了時刻を早めれば使える」のかを見分けられるようにするため（RSV-27）。MNG-2 の `RULE_DEVICE_IN_USE` とも分ける。空いていないのは利用中に限らず、猶予の間の予約済でも空いていない。
 - `RULE_TIME_ORDER` を `INPUT_` にしないのは、時間帯の変更では保存してある値と比べるので、入力だけでは決まらないため（上の 1）。
 - そのほかの `RULE_` のコード（段 4・6・7・8）は、機能ごとの設計で足す。
 
