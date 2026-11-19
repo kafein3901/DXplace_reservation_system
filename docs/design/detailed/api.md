@@ -1,8 +1,8 @@
 # API
 
-- 状態：作成中（共通の部分、保守用の API、管理者の認証、共有された情報の設定、利用の開始、利用者の入力、機器、予約状況・確保、予約なしの利用、自分の予約・取消を決定。残りの API の入出力は、機能ごとの設計で足す）
+- 状態：作成中（共通の部分、保守用の API、管理者の認証、共有された情報の設定、利用の開始、利用者の入力、機器、予約状況・確保、予約なしの利用、自分の予約・取消、時間帯の変更を決定。残りの API の入出力は、機能ごとの設計で足す）
 - 日付：2026-11-19
-- 関係する要件：USR-1〜USR-7, LOG-1〜LOG-4, MNG-1, MNG-2, VIW-1, RSV-2〜RSV-8, RSV-17, RSV-20, TIM-1〜TIM-7, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
+- 関係する要件：USR-1〜USR-7, LOG-1〜LOG-4, MNG-1, MNG-2, VIW-1, RSV-2〜RSV-12, RSV-16, RSV-17, RSV-20, TIM-1〜TIM-7, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
 - 前提：[architecture.md](../basic/architecture.md) 1, 3, 4（Worker は渡すだけ、手順 1〜7）、[screens-and-api.md](../basic/screens-and-api.md) 4〜7（API の一覧、応答の形）、[auth.md](../basic/auth.md) 1, 3, 6, 7（入口の種類、Cookie と Origin、保守用の鍵、試行の制限）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 2, 4（時刻を取る位置、`blockConcurrencyWhile`）、[error-codes.md](error-codes.md)、[schema.md](schema.md) 5（版の適用）
 
 ここでは、すべての API に共通の受け渡しの形、Worker と台帳の受け渡し、デプロイの直後の版の食い違いへの備え、保守用の API の `curl` 手順の形を決める。API ごとの入出力と返しうるコードは、機能ごとの設計で 8 に足す。
@@ -216,6 +216,7 @@ API を変えるときの決まり：
 | `GET /api/devices/{id}/day`、`POST /api/reservations` | 予約状況・確保（VIW-1, VIW-2, RSV-2〜RSV-6） | 済（8.24〜8.26） |
 | `POST /api/walk-ins` | 予約なしの利用（RSV-17, RSV-20） | 済（8.27〜8.28） |
 | `POST /api/my/reservations`、`POST /api/reservations/{id}/cancel` | 自分の予約・取消（RSV-7, RSV-8） | 済（8.29〜8.31） |
+| `POST /api/reservations/{id}/change` | 時間帯の変更（RSV-9〜RSV-12） | 済（8.32〜8.33） |
 | screens-and-api.md 5 の一覧の残りすべて | rules.md 6 の表の各機能と、利用者の入力・予約状況 | 未 |
 
 ### 8.1 `POST /api/maint/admins`（管理者の作成。ADM-2）
@@ -1228,6 +1229,94 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | API | 取消の `{id}` が `0`・`01`・`abc` なら `NOT_FOUND_API`。証明が有効で本文に `role` がないと `INPUT_BODY` |
 | RSV-7 | 自分の予約の SQL を `EXPLAIN QUERY PLAN` で見ると `reservations_user_status` を使う（schema.md 3） |
 
+### 8.32 `POST /api/reservations/{id}/change`（時間帯の変更。RSV-9〜RSV-12, RSV-3, RSV-6, RSV-23, TIM-6, LOG-3）
+
+利用者の画面の「自分の予約」で、予約済・利用中の予約の時間帯を変えて決定したときに呼ぶ。経路の表では、認証の種類は「利用者」、包むかは「包まない」。
+
+要求：
+
+| もの | 内容 |
+| --- | --- |
+| パスの `{id}` | 予約の番号。正の整数の形でなければ `NOT_FOUND_API`（2） |
+| 本文の `role`・`student_id` | 識別の組（8.16）。文字列で、省略できない |
+| 本文の `start` | 変更後の開始時刻（`YYYY-MM-DDTHH:mm`、日本時間）。文字列で、省略できない。変えないなら今の値（8.29 の `start`）を送る |
+| 本文の `end` | 変更後の終了時刻（同じ形）。文字列で、省略できない。変えないなら今の値を送る |
+
+機器は受け取らない（RSV-9）。`device_id` が送られても、知らない項目として無視する（2）。
+
+処理：
+
+1. 準備：本文を読む。利用者の Cookie の値のハッシュを求める（8.12 の 1）。
+2. `clock()` で現在時刻 `now` を取り、`nowMin = floorMinute(now)`。
+3. 共2（`Origin`）→ 共3（8.12 の 2）→ 共4（本文が JSON のオブジェクトで、`role`・`student_id`・`start`・`end` が文字列であること）。
+4. 段 1：`validateRole` → `validateStudentId`（8.16）→ `parseDateTime(start)` → `parseDateTime(end)`（rules.md 6.8）。
+5. `transactionSync` の中で：
+   1. 自動の変化を反映する（rules.md 5）。
+   2. store が引く：識別の組の利用者（8.16）、`{id}` の予約（状態を問わない。なければ `null`）、数値の履歴の全件、その予約の `device_id` の機器の予約済・利用中の全件（`reservations_device_status`。その予約自身を含む）。予約が `null` なら機器の予約は空の配列とする（段 2 で断られるので使われない）。
+   3. `checkChange`（rules.md 6.13）。断られたら、そのコードを返す（反映した自動の変化は残る。8.19）。
+   4. `action` が `change` なら、予約の `start_at`・`end_at` を段 1 で直したミリ秒にする。`status`・`cause`・`walk_in`・`device_id` は変えない。記録を書く。`unchanged` なら何も書かない。
+6. 成功を返す（`Set-Cookie` で期限を延ばす。8.12）。
+
+決めたことと理由：
+
+- **開始・終了の両方を受け取り、今と同じ値の側を「変えない時刻」とする（rules.md「要件の読み方」）。** 比べるのは段 1 で直したミリ秒どうし（rules.md 6.13）なので、文字列の書き方の違いは起きない（`parseDateTime` は1つの形しか受け付けない）。
+- **予約は番号だけで引き、本人のものかは rules が確かめる（8.30 と同じ）。**
+- **段 1 で断るときは何も書かない。** 自動の変化も反映しない（8.25 と同じ）。
+- **両方とも変えないときは成功を返し、何も書かない。** 記録もしない（8.20 の機器の名前の変更の `unchanged` と同じ）。画面が終了の欄を触らずに決定しても、エラーにしない。
+- **ほぼ同時の操作（RSV-3, RSV-23）。** 3 の後から 5 の終わりまでに `await` がないので、包まなくても割り込まれない。同じ機器で2つの予約を同時に同じ空きへ広げると、後の要求は先に書かれた時間帯を見て `RULE_OVERLAP` になる。変更と確保・予約なしの利用が同時でも、後の方が先の行との重なりで断られる。変更と取消・機器の削除が同時なら、先に処理された方の結果の状態を見て、後の変更は `STATE_NOT_ACTIVE` になる（機器の削除で `admin_cancelled` になった場合も）。
+- **自動の変化が先（RSV-22）。** 終了時刻がちょうど `nowMin` の利用中は 5.1 で終了になり、その延長は `STATE_NOT_ACTIVE`。開始時刻＋猶予がちょうど `nowMin` の予約済も無断不使用になり、変えられない。終了時刻がちょうど `nowMin` の他の予約は解放されていて、そこへ広げることを妨げない。
+- **猶予は変更後の開始時刻で引かれる（RSV-26）。** 猶予は予約に写していない（domain-model.md）ので、書き換えた `start_at` から次の要求の反映で引かれる。
+- **時刻は入力どおり。** 時間帯の変更は境界を台帳が決めない（TIM-4 の対象でない）。記録の `at` は `now`（秒を切り捨てない。TIM-5）。
+
+応答の `data`：8.25 と同じ形（`id`・`device_id`・`start`・`end`・`status`）。`start`・`end` は変更後の値（`unchanged` なら今の値）、`status` は `reserved`・`in_use` のどちらか（変わらない）。画面は成功したら自分の予約と予約状況を取り直す（VIW-3）。
+
+返しうるコード（確かめる順）：
+
+| 順 | コード | 段 |
+| --- | --- | --- |
+| 1 | `NOT_FOUND_API`（`{id}` が正の整数の形でないときも） | 共1 |
+| 2 | `AUTH_ORIGIN` | 共2 |
+| 3 | `AUTH_REQUIRED`・`AUTH_REVOKED` | 共3 |
+| 4 | `INPUT_BODY` | 共4 |
+| 5 | `INPUT_ROLE` → `INPUT_STUDENT_ID` → `INPUT_TIME` | 1 |
+| 6 | `NOT_FOUND_USER` → `NOT_FOUND_RESERVATION` | 2 |
+| 7 | `STATE_NOT_ACTIVE` | 3 |
+| 8 | `RULE_START_PASSED` → `RULE_PAST` | 4 |
+| 9 | `RULE_TIME_ORDER` | 5 |
+| 10 | `RULE_LENGTH` | 6 |
+| 11 | `RULE_OVERLAP` | 8 |
+
+`RULE_COUNT` は返さない（RSV-12）。
+
+記録（`events`。LOG-1, LOG-3）：`action` が `change` のときだけ、`at = now`、`actor_kind = 'user'`、`kind = 'reservation_time_changed'`、`reservation_id`・`device_id`・`user_id` はその予約の値、`actor_admin_id`・`admin_id` は `NULL`、`detail` は `{"before": {"start_at": ミリ秒, "end_at": ミリ秒}, "after": {"start_at": ミリ秒, "end_at": ミリ秒}}`（片方だけ変えても両方を入れる。8.15 の `user_renamed` と同じ。schema.md 2.9）。状態は変わらないので `reservation_status` は書かない。断ったときは書かない（反映した自動の変化の記録を除く）。
+
+### 8.33 台帳の層のテストの観点（時間帯の変更）
+
+時計は例として 10:00:30（`nowMin` = 10:00）。
+
+| ID | 確かめること |
+| --- | --- |
+| RSV-9 | 本人の予約済 [11:00, 12:00) を [13:00, 14:30) にすると、`start_at`・`end_at` が変わり、`status`・`walk_in`・`device_id` は変わらない。応答の `data` が変更後の値。`reservation_time_changed` が1行でき、`detail` の `before`・`after` が前後の `start_at`・`end_at`、`actor_kind = 'user'`、`at` は秒を切り捨てていない時刻。`reservation_status` は書かれない |
+| RSV-9 | 終了だけを変えても `detail` の `before`・`after` に両方の時刻が入る。両方とも今と同じ値を送ると成功し、表と `events` が変わらない。本文に別の `device_id` を入れても機器は変わらない |
+| RSV-10 | 利用中（予約なしの利用で始めたものを含む）の終了を延長・短縮できる。開始を変えようとすると `RULE_START_PASSED`（409）で、表が変わらない |
+| RSV-11 | 開始時刻を過ぎて猶予の中の予約済は、終了だけ変えられ、開始を変えようとすると `RULE_START_PASSED`。開始がちょうど 10:00 の予約済の開始の変更も `RULE_START_PASSED` |
+| TIM-6 | 開始をちょうど `nowMin` にする変更は成功。開始を1分前、終了をちょうど `nowMin` にすると `RULE_PAST` |
+| TIM-7 | 開始だけを今の終了と同じ時刻にずらすと `RULE_TIME_ORDER` |
+| RSV-12 | 数値の履歴に `max_length_minutes = 60` の行（`effective_at` が `nowMin`）を入れると、120分の予約済の時間帯をずらす・短くするのは成功し、121分にすると `RULE_LENGTH`。30分の予約を61分にすると `RULE_LENGTH`、60分は成功 |
+| RSV-12 | 予約済・利用中が上限（3件）ある利用者の変更も成功する。予約なしの利用で始めたものの終了を延ばした後も、確保の件数に数えない（8.26 の RSV-4 と合わせて） |
+| RSV-3 | 同じ機器の [12:00, 13:00) の予約がある機器で、[11:00, 12:00) を [11:00, 12:01) にすると `RULE_OVERLAP`、[10:30, 11:30) は成功（自分自身とは重ならない）。既存が同じ人の予約でも断る。別の機器の予約とは重なってもよい |
+| RSV-9 | 取消・無断不使用・終了・管理者による取消・管理者による終了の予約の変更は `STATE_NOT_ACTIVE`（409） |
+| RSV-9 | 他の利用者の予約（予約済でも取消済みでも）、ない番号は `NOT_FOUND_RESERVATION`（404）で、表が変わらない |
+| RSV-23 | 同じ機器の2つの予約を同じ空きへ同時に広げると、1つが成功し、もう1つが `RULE_OVERLAP`。同じ予約への変更と取消を同時に送ると、取消が先なら変更は `STATE_NOT_ACTIVE`、変更が先なら取消が成功する |
+| RSV-22 | 終了時刻がちょうど `nowMin` の利用中の延長は、先に終了になって `STATE_NOT_ACTIVE`（記録は自動・終了時刻）。終了時刻がちょうど `nowMin` の他の利用中がある機器で、その時刻から始まるようにずらす変更は成功する |
+| RSV-26 | 猶予 15分の予約済の開始を 11:00 から 12:00 にすると、時計を 12:14 にしても予約済のまま、12:15 で無断不使用になる（記録は自動・12:15）。開始を変えた後に猶予の数値を変えると、変更後の開始時刻の時点の値が使われる |
+| RSV-16 | 猶予の中の予約済の終了を、開始＋猶予より前に短くすると、その終了時刻に無断不使用になる |
+| RSV-21 | 段 2 以降で断っても、反映した自動の変化が残る。段 1 で断ったときは変わらない |
+| TIM-3 | `start`・`end` に秒がある、ありえない日時は `INPUT_TIME`。`end` がない・数値なら `INPUT_BODY` |
+| USR-4 | 識別の組の利用者がいなければ `NOT_FOUND_USER` |
+| USR-2 | Cookie がないと `AUTH_REQUIRED`、`Origin` がないと `AUTH_ORIGIN`。管理者の Cookie だけでも `AUTH_REQUIRED`（ADM-1） |
+| API | `{id}` が `0`・`01`・`abc` なら `NOT_FOUND_API` |
+
 ## 採らなかった案
 
 | 案 | 理由 |
@@ -1278,3 +1367,6 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | 自分の予約の項目に `walk_in` を入れる | 要件の表示に要らない（8.29） |
 | 自分の予約に `now` を入れない | 画面がどの操作を出すかを端末の時計で決めることになる（TIM-1。8.29） |
 | 取消で、予約を `id = ? AND user_id = ?` で引く | 本人のものかの判定が SQL に入る（rules.md 3。8.30） |
+| 時間帯の変更で、変える側の時刻だけを送らせる | 画面が変えた欄を見分ける必要があり、API の入力の形が変わる（rules.md「要件の読み方」。8.32） |
+| 時間帯の変更で、両方とも変えないときに断る | 画面が欄を触らずに決定しただけでエラーになる。機器の名前の変更の `unchanged` と扱いがそろわない（8.32） |
+| 時間帯の変更の記録に、変えた側の時刻だけを入れる | 1件だけでその時点の時間帯がわからない（8.15 の `user_renamed` と同じ。8.32） |

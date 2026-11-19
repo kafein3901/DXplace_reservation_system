@@ -1,6 +1,6 @@
 # ルールの判定
 
-- 状態：作成中（枠組みを決定。ルールごとの節は、機能ごとの設計で足す。6.12 まで決定）
+- 状態：作成中（枠組みを決定。ルールごとの節は、機能ごとの設計で足す。6.13 まで決定）
 - 日付：2026-11-19
 - 関係する要件：RSV-1〜RSV-27, TIM-1〜TIM-7, MNG-1〜MNG-3, ADM-2, USR-3〜USR-7, SEC-3, NFR-4
 - 前提：[architecture.md](../basic/architecture.md)（手順 1〜7、`rules/` は純粋な関数）、[time-and-concurrency.md](../basic/time-and-concurrency.md)（`nowMin`、自動の変化の反映）、[domain-model.md](../basic/domain-model.md)（状態の移り方、数値の履歴）、[screens-and-api.md](../basic/screens-and-api.md) 7（コードは1つだけ返す）
@@ -135,7 +135,7 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 確保 | RSV-2〜RSV-6 | 済（6.10。api.md 8.25） |
 | 予約なしの利用 | RSV-17, RSV-20 | 済（6.11。api.md 8.27） |
 | 自分の予約 | RSV-7 | 済（6.12。api.md 8.29） |
-| 時間帯の変更 | RSV-9〜RSV-12 | 未 |
+| 時間帯の変更 | RSV-9〜RSV-12 | 済（6.13。api.md 8.32） |
 | 取消 | RSV-8 | 済（6.12。api.md 8.30） |
 | 利用開始 | RSV-14〜RSV-16 | 未 |
 | 利用終了 | RSV-18 | 未 |
@@ -551,6 +551,66 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | RSV-8（`checkCancel`） | 本人の予約済。開始時刻を過ぎた予約済（猶予の中） | `user` が `null`（`NOT_FOUND_USER`）。`reservation` が `null`、他の利用者の予約（`NOT_FOUND_RESERVATION`）。本人の利用中・取消・無断不使用・終了・管理者による取消・管理者による終了（`STATE_NOT_RESERVED`） |
 | RSV-27（`checkCancel` の順） | ― | `user` が `null` で予約も `null` → `NOT_FOUND_USER`。他の利用者の取消済みの予約 → `NOT_FOUND_RESERVATION`（`STATE_` にならない） |
 
+### 6.13 時間帯の変更（`src/rules/reservations.js`。RSV-9〜RSV-12, RSV-3, RSV-6, TIM-6, TIM-7）
+
+要件ごとの関数（2）を2つ足す。ほかは 6.10 の関数を使う。
+
+| 関数 | 段 | 確かめること | コード |
+| --- | --- | --- | --- |
+| `checkStartNotPassed(oldStart, nowMin)` | 4 | `nowMin < oldStart`（RSV-11「開始時刻を変更する操作は、変更前の開始時刻になる前にだけできる」。TIM-2 と同じく、ちょうど開始時刻の分からは変えられない） | `RULE_START_PASSED` |
+| `checkChangeLength(oldStart, oldEnd, newStart, newEnd, limitMinutes)` | 6 | `newEnd − newStart <= limitMinutes × MINUTE_MS`、または `newEnd − newStart <= oldEnd − oldStart`（RSV-12） | `RULE_LENGTH` |
+
+操作ごとの関数：
+
+| 関数 | 引数 |
+| --- | --- |
+| `checkChange({ user, reservation, start, end, nowMin, settings, deviceActive })` | `user`：識別の組で引いた利用者（api.md 8.16。なければ `null`）。`reservation`：store が番号で引いた予約（状態を問わない。なければ `null`）。`start`・`end`：6.8 で直した、変更後の開始・終了のミリ秒（変えない側は今と同じ値）。`settings`：数値の履歴の全件（3.1）。`deviceActive`：その予約の機器の予約済・利用中の全件（その予約自身を含む） |
+
+下の表で、`r` は `reservation`、「開始を変える」は `start !== r.start_at`、「終了を変える」は `end !== r.end_at` をいう（下の「要件の読み方」）。
+
+| 段 | 確かめること | コード |
+| --- | --- | --- |
+| 1 | （`api/` が先に確かめる）`validateRole` → `validateStudentId` → `parseDateTime(start)` → `parseDateTime(end)` | `INPUT_ROLE`・`INPUT_STUDENT_ID`・`INPUT_TIME` |
+| 2 | `user` が `null` でない → `r` が `null` でなく、`r.user_id` が `user.id` と同じ（6.12 の `checkCancel` と同じ） | `NOT_FOUND_USER` → `NOT_FOUND_RESERVATION` |
+| 3 | `r.status` が `reserved`・`in_use` のどちらか | `STATE_NOT_ACTIVE` |
+| 4 | 開始を変えるなら `checkStartNotPassed(r.start_at, nowMin)` → `checkStartNotPast(start, nowMin)`。終了を変えるなら `checkEndNotPast(end, nowMin)` | `RULE_START_PASSED` → `RULE_PAST` |
+| 5 | `checkTimeOrder(start, end)`（変えない側の今の値と合わせて比べる） | `RULE_TIME_ORDER` |
+| 6 | `checkChangeLength(r.start_at, r.end_at, start, end, settingAt(settings, 'max_length_minutes', nowMin))` | `RULE_LENGTH` |
+| 7 | なし（件数を理由に断らない。RSV-12） | ― |
+| 8 | `checkOverlap(deviceActive, start, end, r.id)` | `RULE_OVERLAP` |
+
+受け付けるときは `{ ok: true, action }` を返す。`action` は、開始も終了も変えないなら `unchanged`、そうでなければ `change`。`api/` は `change` のときだけ `start`・`end` をそのまま `start_at`・`end_at` に書く（api.md 8.32）。
+
+- **利用中の予約の開始の変更は `RULE_START_PASSED` で断る（RSV-10）。** 利用中の予約の開始時刻は必ず `nowMin` 以下になっている（利用開始は開始時刻より前なら `nowMin` にし（RSV-15）、予約なしの利用は `nowMin` から始める（RSV-17））。このため RSV-11 の開始の条件だけで、RSV-10「利用中は終了時刻だけ」が守られる。状態ごとに別の判定を置かない（2026-11-19 に開発者が了承）。
+- **猶予の中の予約済（開始時刻を過ぎている）も、開始は `RULE_START_PASSED` で断り、終了だけは変えられる。** 開始を今と同じ値で送れば「変えない時刻」になる（下の「要件の読み方」）。
+- **`RULE_START_PASSED` を `RULE_PAST` と分ける（2026-11-19 に開発者が了承）。** `RULE_PAST` は新しい時刻が過去のときで、入力を直せば通る。`RULE_START_PASSED` は変更前の開始時刻を過ぎているときで、どう入力しても開始は変えられない。利用者が見分けられるようにする（RSV-27）。どう入力しても直らないものを先に確かめる。
+- **状態のコードは `STATE_NOT_RESERVED` を使わず `STATE_NOT_ACTIVE` にする（2026-11-19 に開発者が了承）。** 利用中も受け付けるので、「予約済でない」という意味と合わない。
+- **RSV-11 の終了の条件（変更前の終了時刻になる前）は確かめない（2026-11-19 に開発者が了承）。** 自動の変化を反映した後のデータ（5.3）では、終了時刻が `nowMin` 以下の利用中はすでに終了になっている。予約済は `min(開始 + 猶予, 終了)` で無断不使用になるので、終了時刻が `nowMin` 以下の予約済も残っていない。段 3 を通った予約は必ず `nowMin < r.end_at` で、断る場合をテストで作れない（6.11 の段 5 と同じ考え方）。
+- **段 5 は確保と同じ関数を、変えない側の今の値と合わせて呼ぶ。** 利用中で終了だけを変えるときは、開始が `nowMin` 以下で段 4 で `end > nowMin` を確かめているので必ず通るが、予約済では断る場合がある（開始を終了より後へずらすなど）ので、状態で分けずに呼ぶ。
+- **長さ（RSV-12）。** 上限は `nowMin` の時点の値（3.1）。上限を下げた後でも、変更前より長くしなければ受け付ける（短くする・ずらす）。上限を超えていても変更前の長さ以下なら受け付ける。
+- **件数を数えない（RSV-12）。** 利用者の予約は引かない。`walk_in` は変えないので、予約なしの利用で始めたものは変更後も件数に数えない（RSV-17。6.10）。
+- **重なりは、その予約自身を除いて確かめる（RSV-11「変更後の時間帯にも RSV-3 を適用する」）。** 同じ人の別の予約との重なりも断る（RSV-3）。
+- **猶予は変更後の開始時刻の時点の値になる（RSV-26）。** 猶予は確保の時点で写さず、`dueTransitions`（5.1）が `start_at` から引く（domain-model.md）ので、開始を変えれば自然に変わる。終了を早めて `開始 + 猶予` より前にした予約済は、その終了時刻に無断不使用になる（RSV-16）。
+- **機器は変えない（RSV-9）。** 機器を受け取らない。予約済・利用中の予約の機器は削除されていない（6.12）ので、機器を確かめない。
+- **両方とも変えないときも段 3〜8 を確かめる。** 段 2・3 を通った今の時間帯は、段 4〜8 を必ず通る（開始・終了は変えないので段 4 はなく、今の時間帯は終了 > 開始で、長さは変更前以下で、ほかの確保中の予約と重ならない）。`unchanged` のための分岐を判定の途中に置かない。
+- **同時の操作（RSV-23）。** 判定から書き込みまでの間に `await` がないので割り込まれない（api.md 8.32）。
+
+テストの観点（ルールの層）。時刻は例として `nowMin` = 10:00、長さの上限は初期値（1440分）：
+
+| ID | 受け付ける | 断る |
+| --- | --- | --- |
+| RSV-11（`checkStartNotPassed`） | 変更前の開始 10:01 | 変更前の開始 10:00（ちょうど `nowMin`）、9:59。どちらも `RULE_START_PASSED` |
+| RSV-12（`checkChangeLength`） | 新しい長さが1440分ちょうど。上限を 60 に変えた履歴で、変更前 120分 → 変更後 120分（ずらす）・90分。変更前 30分 → 変更後 60分 | 上限 60 で、変更前 30分 → 変更後 61分。変更前 120分 → 変更後 121分。どちらも `RULE_LENGTH` |
+| RSV-9（`checkChange`、予約済） | 予約済 [11:00, 12:00) を [13:00, 14:00)、[10:00, 11:00)（開始がちょうど `nowMin`）、[11:00, 12:30)、[11:30, 12:00) に。戻り値は `change`。両方とも今と同じなら `unchanged` | `user` が `null`（`NOT_FOUND_USER`）。`r` が `null`、他の利用者の予約（`NOT_FOUND_RESERVATION`） |
+| RSV-9（状態） | 予約済、利用中 | 取消・無断不使用・終了・管理者による取消・管理者による終了（`STATE_NOT_ACTIVE`） |
+| RSV-10（`checkChange`、利用中） | 利用中 [9:00, 11:00) の終了を 12:00（延長）、10:01（短縮）に。予約なしの利用で始めたもの（`walk_in = 1`）でも同じ | 開始を 9:30 に（`RULE_START_PASSED`）。終了を 10:00（ちょうど `nowMin`）に（`RULE_PAST`） |
+| RSV-11（猶予の中の予約済） | 予約済 [9:55, 11:00) の終了を 11:30 に（開始は今と同じ） | 開始を 10:05 に（`RULE_START_PASSED`。新しい開始が未来でも断る） |
+| TIM-6（`checkChange`） | 開始を `nowMin` ちょうどに。終了を 10:01 に | 予約済 [11:00, 12:00) の開始を 9:59 に、終了を 10:00 に（どちらも `RULE_PAST`） |
+| TIM-7（`checkChange`） | 開始だけを終了の1分前に | 予約済 [11:00, 12:00) の開始だけを 12:00 に、12:30 に（変えない終了と合わせて `RULE_TIME_ORDER`） |
+| RSV-12（件数） | 予約済・利用中が上限（3件）ある利用者の予約の変更も受け付ける | ― |
+| RSV-3（`checkChange`） | 既存 [12:00, 13:00) に対して [11:00, 12:00) を [11:00, 12:00) のまま・[11:30, 12:00) に。自分自身との重なりは数えない（[11:00, 12:00) → [10:30, 11:30) で、元の自分と重なっても受け付ける） | 同じ既存に対して [11:00, 12:01) に（`RULE_OVERLAP`）。既存が自分の別の予約でも断る。利用中の延長が後の予約と重なるときも断る |
+| RSV-27（`checkChange` の順） | ― | `user` が `null` で予約も `null` → `NOT_FOUND_USER`。他の利用者の取消済みの予約 → `NOT_FOUND_RESERVATION`。本人の取消済みの予約で新しい開始も過去 → `STATE_NOT_ACTIVE`。利用中で開始も過去に → `RULE_START_PASSED`（`RULE_PAST` にならない）。過去かつ長さ超え → `RULE_PAST`。終了 ≤ 開始かつ重なり → `RULE_TIME_ORDER`。長さ超えかつ重なり → `RULE_LENGTH` |
+
 ## 7. 共通のテストの観点
 
 | 対象 | 観点 |
@@ -585,6 +645,11 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 予約なしの利用でも段 5（`RULE_TIME_ORDER`）を確かめる | 段 4 を通れば必ず成り立ち、断る場合をテストで作れない（6.11） |
 | 自分の予約の一覧から予約なしの利用で始めたものを除く | RSV-10・RSV-18 の操作の入口がなくなる（6.12） |
 | すでに取消の予約への取消を成功として返す | 結果の状態が取消とは限らず、何が起きたかが曖昧になる（6.12） |
+| 利用中の予約の開始の変更を、段 3 で別のコード（`STATE_IN_USE` など）で断る | 利用中の開始は必ず `nowMin` 以下なので、RSV-11 の開始の条件で断れる。判定が RSV-10 と RSV-11 の2か所に分かれる（6.13） |
+| 変更前の開始時刻を過ぎているときも `RULE_PAST` にまとめる | 入力を直せば通るのか、開始そのものを変えられないのかを利用者が見分けられない（6.13） |
+| 時間帯の変更の状態の誤りに `STATE_NOT_RESERVED` を使う | 利用中も受け付けるので、「予約済でない」という意味と合わない（6.13） |
+| RSV-11 の終了の条件（変更前の終了時刻になる前）も段 4 で確かめる | 自動の変化を反映した後には必ず成り立ち、断る場合をテストで作れない（6.13） |
+| 両方とも変えないときは段 3 以降を確かめずに `unchanged` を返す | 今の時間帯は段 4〜8 を必ず通るので、分岐を足しても結果が変わらない（6.13） |
 
 ## 要件の読み方（確認済み）
 
