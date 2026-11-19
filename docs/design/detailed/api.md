@@ -1,6 +1,6 @@
 # API
 
-- 状態：作成中（共通の部分、保守用の API、管理者の認証、共有された情報の設定を決定。残りの API の入出力は、機能ごとの設計で足す）
+- 状態：作成中（共通の部分、保守用の API、管理者の認証、共有された情報の設定、利用の開始を決定。残りの API の入出力は、機能ごとの設計で足す）
 - 日付：2026-11-19
 - 関係する要件：USR-1, USR-2, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
 - 前提：[architecture.md](../basic/architecture.md) 1, 3, 4（Worker は渡すだけ、手順 1〜7）、[screens-and-api.md](../basic/screens-and-api.md) 4〜7（API の一覧、応答の形）、[auth.md](../basic/auth.md) 1, 3, 6, 7（入口の種類、Cookie と Origin、保守用の鍵、試行の制限）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 2, 4（時刻を取る位置、`blockConcurrencyWhile`）、[error-codes.md](error-codes.md)、[schema.md](schema.md) 5（版の適用）
@@ -86,7 +86,7 @@ rules.md 4 の段 1 より前に、すべての API で次の順に確かめる�
 | 共4 | 本文を読めたか | `INPUT_BODY` | `GET` |
 
 - **本文の誤りは、認証が通ってから返す。** 本文は 3.3 の 2 で読んでおくが、壊れていたことは共3 の後に返す。認証されていない相手に、入力の形について何も教えないため。
-- **例外：利用の開始（`POST /api/session`）、管理者の認証（`POST /api/admin/login`）。** 認証の値が本文に入っているので、本文が読めなければ認証を確かめられない。これらは共4 を共3 の前に確かめる。試行の上限（`LIMIT_ATTEMPTS`）は共4 より前に確かめ、上限を超えた相手には本文の誤りも教えない。
+- **例外：利用の開始（`POST /api/session`）、管理者の認証（`POST /api/admin/login`）。** 認証の値が本文に入っているので、本文が読めなければ認証を確かめられない。これらは共4 を共3 の前に確かめる。試行の上限（`LIMIT_ATTEMPTS`）は共4 より前に確かめ、上限を超えた相手には本文の誤りも教えない。利用の開始では、さらに上限より前に、すでに有効な証明を持つかを確かめ、持っていれば成功を返す（8.11）。
 - **保守用の API は例外にしない。** 鍵は本文ではなくヘッダで送る（下の 6）ので、ほかの API と同じく、鍵が通ってから本文の誤りを返す（2026-11-19 に保守用の API の設計で直した。当初は例外に含めていた）。
 - **保守用の API で `Origin` を確かめない理由。** `curl` は `Origin` を送らない。保守用の鍵はヘッダで送り、Cookie を使わないので、ほかのサイトから送らせる攻撃（CSRF）が成り立たない。
 - **`Origin` の比べ方。** 要求の URL のオリジン（`new URL(request.url).origin`）と、`Origin` ヘッダの値が完全に一致すること。ヘッダがなければ断る。主要なブラウザは、同じサイトへの `fetch` の `POST` にも `Origin` を付ける。
@@ -210,7 +210,8 @@ API を変えるときの決まり：
 | `POST /api/maint/admins`、`POST /api/maint/admins/{id}/reset-password` | 保守用の API（ADM-2） | 済（8.1〜8.3） |
 | `POST /api/admin/login`、`GET /api/admin/me`、`POST /api/admin/logout`、管理者の API に共通の証明の確かめ方 | 管理者の認証（ADM-2） | 済（8.4〜8.8） |
 | `POST /api/admin/shared-info` | 共有された情報の設定・変更（ADM-3） | 済（8.9〜8.10） |
-| screens-and-api.md 5 の一覧の残りすべて | rules.md 6 の表の各機能と、利用の開始・管理者の認証・利用者の入力・予約状況 | 未 |
+| `POST /api/session`、`GET /api/session`、利用者の API に共通の証明の確かめ方 | 利用の開始（USR-2） | 済（8.11〜8.14） |
+| screens-and-api.md 5 の一覧の残りすべて | rules.md 6 の表の各機能と、利用者の入力・予約状況 | 未 |
 
 ### 8.1 `POST /api/maint/admins`（管理者の作成。ADM-2）
 
@@ -447,7 +448,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 - **判定はない。** 共3 を通れば必ず受け付ける。`src/rules/` に新しい関数は作らない（rules.md 6 の表）。
 - **確保済みの予約は変えない（ADM-3）。** この API は予約の表に触れない（自動の変化の反映はほかの API と同じく行う）。
 - **管理者の認証は止めない（ADM-3）。** `admin_sessions` に触れない。
-- **利用を始めた端末は版で止まる。** `user_sessions` の行は消さず、書き換えもしない。始めた版が現在の版と違う証明は、利用者の API で `AUTH_REVOKED` になる（auth.md 3）。その確かめ方は利用の開始の機能で決める。
+- **利用を始めた端末は版で止まる。** `user_sessions` の行は消さず、書き換えもしない。始めた版が現在の版と違う証明は、利用者の API で `AUTH_REVOKED` になる（auth.md 3。確かめ方は 8.12）。
 - **値の扱い（SEC-4）。** 台帳はハッシュだけを保存する。値は応答の本文にだけ入れ、記録・`console` に出さない（1）。応答には、ほかの応答と同じく `Cache-Control: no-store` が付く。応答が届かなかった（通信の断など）ときも行は足されているので、値はもうどこからも取り出せない。管理者はもう一度この操作をする（ADM-3「わからなくなったら設定し直す」）。
 - **URL は画面が作る。** 利用者の画面の URL の後ろに `#k=値` を付ける（auth.md 2）。台帳は利用者の画面のパスを知らなくてよい。QR コードの描き方と、押す前の確かめを置くかは screens.md で決める（影響範囲の事前表示は10章で除かれている）。
 
@@ -473,13 +474,131 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | ADM-3 | 2回目を呼ぶと `id` が1つ大きい行が足され、値もハッシュも1回目と違う。1回目の行は残る |
 | ADM-3 | 呼ぶ前後で、予約済・利用中の予約の行（状態・時刻）が変わらない（自動の変化の対象にならない予約で確かめる） |
 | ADM-3 | 呼んだ管理者の Cookie でも、ほかの管理者の Cookie でも、その後の `GET /api/admin/me` が通る。応答に同じ値の `Set-Cookie` が付く |
-| ADM-3 | 古い版で始めた証明が止まること（`AUTH_REVOKED`）は、利用の開始の機能のテストで確かめる |
+| ADM-3 | 古い版で始めた証明が止まること（`AUTH_REVOKED`）は、利用の開始の機能のテスト（8.14）で確かめる |
 | ADM-2 | Cookie がないと `AUTH_REQUIRED`、解いた証明では `AUTH_REVOKED` で、`shared_infos`・`events` に行が増えない |
 | API | `Origin` がないと `AUTH_ORIGIN`。本文が壊れていて証明もないと `AUTH_REQUIRED`（認証が先）。証明が有効で本文が壊れていると `INPUT_BODY`。どれも行が増えない |
 | LOG-4 | 成功すると `events` に `kind = 'shared_info_set'`・`actor_admin_id` 付きの行が1つでき、`detail` は `version` だけで、足した行の `id` と等しい。`events` のどの列にも値とハッシュが入っていない |
 | SEC-4 | 処理の途中で例外が起きたとき、`console.error` の出力に値が含まれない（テストで出力を受け取って確かめる）。行も増えない |
 | RSV-21 | 開始時刻＋猶予を過ぎた予約済の予約がある台帳で呼ぶと、無断不使用になる |
 | RSV-23 | 2つ同時に送ると、どちらも成功して2行でき、2つの値は違う。`id` の大きい行のハッシュが、後に処理された応答の値の SHA-256 と等しい |
+
+### 8.11 `POST /api/session`（利用の開始。USR-2, ADM-3, SEC-3, SEC-4）
+
+利用者の端末が、QR コードの URL の `#k=値`（auth.md 2）を送り、利用を始めた証明を受け取る。経路の表（3.3）では、認証の種類は「誰でも」、包むかは「包まない」（PBKDF2 がなく、SHA-256 は準備で求めるので、確かめてから書くまでに `await` がない。auth.md 7）。確かめる順は 4 の例外（有効な証明 → 上限 → 本文 → 値）。
+
+要求の本文：
+
+| 項目 | 型 | 省略 | 内容 |
+| --- | --- | --- | --- |
+| `k` | 文字列 | できない | 共有された情報の値。URL の `#k=` の後ろの値をそのまま送る。そろえずに使う |
+
+- 名前を `k` にするのは、URL の `#k=` と同じにして、画面が読んだ値をそのまま送れるようにするため。
+
+処理：
+
+1. 準備（3.3 の 2）：
+   - 本文を読む。
+   - 利用者の Cookie の値のハッシュを求める（8.12 の 1）。
+   - 本文の `k` が文字列で `isTokenFormat`（rules.md 6.3）を通るときだけ、その UTF-8 のバイト列の SHA-256 を求める。通らなければハッシュはないものとする。
+   - 新しい証明の値とその SHA-256 を `newToken()` で作る。成功するかどうかにかかわらず、ここで作る（auth.md 3）。
+2. `clock()` で現在時刻を取る。
+3. 同期で、次の順に確かめる。
+   1. `Origin`（共2）。
+   2. 有効な証明：8.12 の 2 と同じく `checkUserSession` で判定する。通れば、下の 4 の「有効な証明があったとき」に進み、ii 以降を確かめない。通らなければ（`AUTH_REQUIRED`・`AUTH_REVOKED`）、断らずに ii に進む。
+   3. 試行の上限：`auth_failures` の、`entry = 'shared_info'`・`client = clientKey(CF-Connecting-IP)`・`windowStart(now)` の行を引き、`checkAttemptLimit(行, 200)`。
+   4. 本文（共4）：JSON のオブジェクトで、`k` が文字列であること。
+   5. 値：store が現在の共有された情報の行（`shared_infos` の `id` の最も大きい行。なければ `null`）を引く。1 のハッシュがあって行もあれば `equalBytes(1 のハッシュ, 行の hash)` を求め、どちらかがなければ偽とする。`checkSharedInfo(行, 一致したか)`（rules.md 6.3）で判定する。
+4. `transactionSync` の中で書く。
+   - 有効な証明があったとき（3 の ii）：自動の変化を反映する（rules.md 5）。表にはほかに何も書かない。
+   - 成功のとき：自動の変化を反映する。`user_sessions` に1行足す（`token_hash` は 1 の新しい証明のハッシュ、`shared_info_id` は 3 の v の行の `id`、`created_at` は 2 の時刻）。
+   - 失敗のとき（`checkSharedInfo` が `failure` を返したとき）：失敗を数える（6.1 と同じ書き方。`entry = 'shared_info'`）。自動の変化は反映しない（8.1 と同じ）。
+   - ほかで断るとき（`AUTH_ORIGIN`・`LIMIT_ATTEMPTS`・`INPUT_BODY`・`AUTH_SHARED_INFO_UNSET`）：何も書かない。
+5. 応答を返す。有効な証明があったときは `Set-Cookie: userCookie(受け取った値)` で期限を延ばし、成功のときは `Set-Cookie: userCookie(1 の新しい値)` を付ける（rules.md 6.3）。
+
+決めたことと理由：
+
+- **有効な証明があれば、値を確かめずに成功を返す（auth.md 2）。** 新しい行も作らない。QR コードは掲示物で、来るたびに読む人が多いため。送られた値が古くても違っても成功にする。その端末はすでに現在の版で認証されている。
+- **有効な証明の確認を、上限より先にする。** 校内の回線では利用者が外から同じ相手に見えるので、上限に達したときに、すでに使えている端末まで止めないため（SEC-3「正規の利用者の利用を妨げない」）。その端末は認証されているので、本文の誤りを確かめる必要もない。
+- **止められた証明（古い版）は、ないものと同じに扱う。** 共有された情報が変わった後に新しい QR コードを読み直す流れがこれに当たる。新しい行を足し、新しい `Set-Cookie` でブラウザの値を上書きする。古い行は消さない（LOG-5）。
+- **未設定は失敗として数えない。** 比べる値がないので試行にならない（6.1 の `AUTH_MAINT_DISABLED` と同じ考え方）。未設定の間は `entry = 'shared_info'` の失敗の行ができないので、上限より後に確かめても結果は変わらない。順は 4 の例外（上限 → 本文 → 値）に合わせる。
+- **形が違う `k` も `AUTH_SHARED_INFO_WRONG` にして数える。** 管理者の認証（8.4）と同じく `INPUT_` を返さない。カメラが URL の一部しか読めなかったときもここに当たる。
+- **古い版の値と、まったく違う値を区別しない。** 区別するには過去の版のハッシュとすべて比べる必要があり、要件にもない。画面の文は「QR コードが古いか、正しくありません」とする（screens.md）。
+- **同時に届いた試行も上限をすり抜けない。** 3 から 4 までが同期の区間なので、包まなくても割り込まれない（auth.md 7）。
+
+応答の `data`：`{}`。有効な証明があったときと、新しく始めたときで同じにする（画面はどちらかを知らなくてよい）。
+
+返しうるコード（確かめる順）：
+
+| 順 | コード | 段 | 失敗として数えるか |
+| --- | --- | --- | --- |
+| 1 | `NOT_FOUND_API` | 共1 | ― |
+| 2 | `AUTH_ORIGIN` | 共2 | 数えない |
+| 3 | `LIMIT_ATTEMPTS` | 共3（上限） | 数えない（上限後は書かない。logging.md 4） |
+| 4 | `INPUT_BODY` | 共4 | 数えない |
+| 5 | `AUTH_SHARED_INFO_UNSET` | 共3（値） | 数えない |
+| 6 | `AUTH_SHARED_INFO_WRONG` | 共3（値） | 数える |
+
+記録：
+
+- 成功は記録しない（logging.md 2。LOG-4 の対象は管理者の認証）。証明の表に作った時刻が残る。
+- 失敗（`auth_failures`）：上の 4。`unknown_id_failures`・`wrong_password_failures` は 0、`last_login_id` は `NULL`。
+- どちらにも、共有された情報の値・そのハッシュ・証明の値を入れない（SEC-4, LOG-4）。
+
+### 8.12 利用者の API に共通の証明の確かめ方（共3。USR-2, ADM-3）
+
+`GET /api/session` を除く利用者の API（`POST /api/me`、機器の一覧・予約状況、予約の操作）は、すべて次のように確かめる。
+
+1. 準備（3.3 の 2）：`readCookie(Cookie, '__Host-dxp_user')` で値を取り出す。`isTokenFormat` を通れば、その SHA-256 を求める。通らなければ、Cookie がないものとする（rules.md 6.3）。
+2. 共3：store がハッシュで `user_sessions` の行を引き、あわせて現在の共有された情報の版（`shared_infos` の最も大きい `id`。なければ `null`）を引く。`checkUserSession(行, 現在の版)` で判定する。Cookie がないときは行を `null` として渡す。
+3. 通ったら、API ごとの関数に進む。
+
+- **期限を延ばす。** 共3 を通った後の応答には、成功でも、後の段で断るとき（`INPUT_`・`NOT_FOUND_`・`STATE_`・`RULE_`）でも、`Set-Cookie: userCookie(受け取った値)` を付ける（8.5 と同じ。auth.md 3「使うたびに延ばす」）。表には書かない（schema.md 2.8 の後の注）。例外の 500 と、共3 で断る応答には付けない。
+- **共有された情報の版で止める。** 共有された情報を設定し直す（8.9）と現在の版が変わり、それまでの証明は次の要求から `AUTH_REVOKED` になる（ADM-3「すでに利用を始めている端末も含めてすべての端末で止まる」）。行は書き換えない。
+- **画面の扱い。** `AUTH_REQUIRED` を受けたら「QR コードを読んでください」、`AUTH_REVOKED` を受けたら「QR コードが新しくなったので読み直してください」と案内する（error-codes.md 3.2）。
+- **自動の変化は、共3 を通った後に反映する。** 8.5 と同じ。
+- 利用者の API は管理者の証明を受け付けない（auth.md 1。`__Host-dxp_admin` は見ない）。管理者の API も利用者の証明を見ない。
+
+### 8.13 `GET /api/session`（利用を始めているか。USR-2）
+
+利用者の画面を開いたときに呼び、その端末の証明が有効かを返す。経路の表では、認証の種類は「誰でも」、包むかは「包まない」。共3 で断らない（4 の表）。
+
+処理：準備（8.12 の 1）→ `clock()` → 8.12 の 2 と同じく `checkUserSession` で判定 → 有効なら `transactionSync` の中で自動の変化を反映する → 応答を返す。
+
+応答の `data`：
+
+| 場合 | `data` | `Set-Cookie` |
+| --- | --- | --- |
+| 有効 | `{ "active": true }` | `userCookie(受け取った値)` で延ばす |
+| 有効でない | `{ "active": false, "reason": コード }`。コードは `checkUserSession` が返した `AUTH_REQUIRED` か `AUTH_REVOKED` | 付けない |
+
+- **`reason` にはエラーのコードをそのまま入れる。** 画面は `messages.js` の文を使い回して、「QR コードを読んでください」と「読み直してください」を出し分けられる。`active` が偽でも HTTP は 200 で、`ok` は真。
+- **未設定は区別しない。** 未設定の間は証明が作られないので、`reason` は必ず `AUTH_REQUIRED` になる。QR コードを読めば `POST` が `AUTH_SHARED_INFO_UNSET` を返す。
+- **有効でないときは自動の変化を反映しない。** 共3 を通った後に反映する（8.5）のと合わせる。
+- `#k=` 付きで開かれたときは、画面はこの API を呼ばずに `POST /api/session` を送る（有効な証明があれば `POST` が値を見ずに成功を返す）。
+
+返しうるコード：`NOT_FOUND_API` だけ。`GET` なので `Origin` と本文は確かめない。
+
+記録：書かない。反映した自動の変化は記録する（logging.md 2）。
+
+### 8.14 台帳の層のテストの観点（利用の開始）
+
+| ID | 確かめること |
+| --- | --- |
+| USR-2 | 共有された情報の設定（8.9）で返った値で `POST /api/session` を呼ぶと、`user_sessions` に1行でき（`shared_info_id` は現在の版）、`Set-Cookie` に `__Host-dxp_user`・`HttpOnly`・`Secure`・`SameSite=Strict`・`Path=/`・`Max-Age=34560000` が付く。その Cookie で `GET /api/session` が `active: true` |
+| USR-2 | 有効な Cookie を持ったまま、同じ値・違う値・形の違う値・壊れた本文で `POST` しても成功し、行が増えず、失敗も増えない。`Set-Cookie` は受け取った値と同じ |
+| USR-2 | 共有された情報が未設定の台帳では `AUTH_SHARED_INFO_UNSET`（401）で、`auth_failures` に行ができない |
+| ADM-3 | 共有された情報を設定し直すと、前の版で始めた証明で `GET /api/session` が `active: false, reason: AUTH_REVOKED` になり、利用者の API が `AUTH_REVOKED` になる（利用者の API は、利用者の入力の機能ができてから `POST /api/me` で確かめる。この段では `GET /api/session` と、`checkUserSession` のルールの層のテストで確かめる）。応答に `Set-Cookie` が付かない |
+| ADM-3 | 設定し直した後、前の値で `POST` すると `AUTH_SHARED_INFO_WRONG`、新しい値なら成功して新しい行ができ、前の行は残る。管理者の証明は止まらない（`GET /api/admin/me` が通る） |
+| USR-2 | Cookie がない、形が違う（42文字など）、表にない値は、`GET /api/session` で `active: false, reason: AUTH_REQUIRED`、利用者の API で `AUTH_REQUIRED` |
+| USR-2 | 共3 を通った利用者の API の応答には、同じ値の `Set-Cookie` が付く。共3 で断る応答には付かない |
+| ADM-1 | 利用者の API は管理者の Cookie だけでは `AUTH_REQUIRED`。管理者の API は利用者の Cookie だけでは `AUTH_REQUIRED` |
+| SEC-3 | 値が違う、形の違う `k` は `AUTH_SHARED_INFO_WRONG` で、`entry = 'shared_info'` の行の `failures` が1増える。`INPUT_BODY`（本文が壊れている、`k` がない、文字列でない）・`AUTH_ORIGIN`・`AUTH_SHARED_INFO_UNSET` では増えない |
+| SEC-3 | 200回失敗した後は、正しい値でも `LIMIT_ATTEMPTS`（429）で、行が変わらない。本文が壊れていても `LIMIT_ATTEMPTS`（上限が先）。別の IP（IPv6 は別の /64）は止まらない。次の10分の区切りでは通る |
+| SEC-3 | 上限に達した相手からでも、有効な証明を持つ端末の `POST` は成功する |
+| RSV-23 | 199回失敗した相手から違う値を2つ同時に送ると、1つ目の失敗で上限に達し、2つ目は `LIMIT_ATTEMPTS` になる |
+| SEC-4 | `POST /api/session` の処理の途中で例外が起きたとき、`console.error` の出力に送られた値が含まれない。行も増えない |
+| LOG-4 | 成功しても `events` に行ができない。`auth_failures`・`user_sessions`・`events` のどの列にも、共有された情報の値・証明の値が入っていない（`user_sessions.token_hash` は証明の値の SHA-256） |
+| RSV-21 | 開始時刻＋猶予を過ぎた予約済の予約がある台帳で、利用の開始の成功、有効な証明での `POST`、`active: true` の `GET` を呼ぶと無断不使用になる。失敗と `active: false` では変わらない |
 
 ## 採らなかった案
 
@@ -508,3 +627,8 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | 共有された情報の設定の応答で、版の番号も返す | 画面で使わない（8.9） |
 | 共有された情報の設定で、古い `user_sessions` を無効にする（書き換える・消す） | 版で止める方式（auth.md 3）と二重になる。行を消すのは LOG-5 にも反する（8.9） |
 | 共有された情報の設定がほぼ同時に起きたら、後の操作を断る（直前の版を要求に入れさせるなど） | 要件にない。押した管理者どうしで掲示を確かめれば済む（8.9） |
+| 利用の開始で、有効な証明の確認を試行の上限の後にする | 校内の回線が上限に達したとき、すでに使えている端末まで止まる（SEC-3。8.11） |
+| 利用の開始で、古い版の値に別のコードを付ける | 過去の版のハッシュとすべて比べることになり、要件にない（8.11） |
+| 利用の開始で、`k` の形の誤りを `INPUT_` で返し、数えない | 管理者の認証（8.4）と扱いがそろわない。形を確かめるだけの試行を数えずに許すことになる（8.11） |
+| 利用の開始の本文の項目を `shared_info` にする | URL の `#k=` と名前がそろわない（8.11） |
+| `GET /api/session` を、有効でなければ 401 で断る形にする | 画面が毎回エラーとして扱うことになる。基本設計で、この API は断らないとしている（4、8.13） |

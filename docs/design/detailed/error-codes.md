@@ -49,17 +49,20 @@
 | コード | 要件 | 返す API | 段 | 意味 |
 | --- | --- | --- | --- | --- |
 | `AUTH_ORIGIN` | USR-1, ADM-2 | `GET` 以外のすべて（保守用の API を除く） | 共2 | `Origin` ヘッダがない、または自分のサイトと違う（auth.md 3 の CSRF の対策） |
-| `AUTH_REQUIRED` | USR-1, USR-2, ADM-2 | 利用者の API、管理者の API | 共3 | 証明の Cookie がない、または値のハッシュが表にない |
+| `AUTH_REQUIRED` | USR-1, USR-2, ADM-2 | 利用者の API、管理者の API | 共3 | 証明の Cookie がない、形が違う、または値のハッシュが表にない |
 | `AUTH_REVOKED` | USR-2, ADM-2, ADM-3 | 利用者の API、管理者の API | 共3 | 証明は表にあるが止められている（利用を始めた版が現在の共有された情報の版と違う。管理者の認証を解いた、管理者が削除された、パスワードの版が違う） |
 | `AUTH_MAINT_DISABLED` | ADM-2 | 保守用の API | 共3 | `MAINT_KEY` が設定されていない、または43文字より短い（design-values.md）。失敗として数えない（api.md 6） |
 | `AUTH_MAINT_KEY_INVALID` | ADM-2, SEC-3 | 保守用の API | 共3 | `Authorization: Bearer 鍵` のヘッダがない、形が違う、または鍵が違う。失敗として数える（api.md 6） |
 | `AUTH_ADMIN_FAILED` | ADM-2, SEC-3 | 管理者の認証（`POST /api/admin/login`） | 共3 | ID がない（形式に合わない、削除した管理者を含む）、またはパスワードが違う。どちらかを区別しない（auth.md 8）。失敗として数える（api.md 8.4、rules.md 6.3） |
+| `AUTH_SHARED_INFO_UNSET` | USR-2, ADM-3 | 利用の開始（`POST /api/session`） | 共3 | 共有された情報が未設定（`shared_infos` が0行）。失敗として数えない（api.md 8.11） |
+| `AUTH_SHARED_INFO_WRONG` | USR-2, ADM-3, SEC-3 | 利用の開始（`POST /api/session`） | 共3 | 送られた値が現在の共有された情報と違う。変更前の古い値、形の違う値（43文字の base64url でない）を含み、どれかを区別しない。失敗として数える（api.md 8.11、rules.md 6.3） |
 
 - `AUTH_REQUIRED` と `AUTH_REVOKED` を分けるのは、画面で「QR コードが新しくなったので読み直してください」と案内できるようにするため（RSV-27。auth.md 8 も止められた証明を理由に挙げている）。分けても、外から新しく分かることは「その端末が以前に使えていたか」だけで、その端末の持ち主はもともと知っている。
 - 利用者の API と管理者の API で同じコードを使う。どちらの証明かは呼んだ画面が知っている。
 - `AUTH_MAINT_DISABLED` と `AUTH_MAINT_KEY_INVALID` を分けるのは、学校のアカウントが「シークレットを設定し忘れた」ことに気づけるようにするため。設定されていることが外にわかっても、鍵は256ビットのランダムな値なので推測できない。
 - `AUTH_ADMIN_FAILED` は、ID やパスワードの形式が合わないときにも返す。管理者の認証では `INPUT_LOGIN_ID`・`INPUT_PASSWORD` を返さない。形式を教えると、ID の候補を外から絞り込めるため（api.md 8.4）。
-- 利用の開始（`AUTH_SHARED_INFO_*`）のコードは、その機能の設計で足す。
+- `AUTH_SHARED_INFO_UNSET` と `AUTH_SHARED_INFO_WRONG` を分けるのは、未設定の間（ADM-3「管理者が設定するまで誰も利用を始められない」）に、利用者が読み直しても直らないことを示せるようにするため。`WRONG` で古い値とまったく違う値を区別しないのは、過去の版のハッシュとすべて比べることになるため（api.md 8.11）。画面の文は「QR コードが古いか、正しくありません」とする。
+- `GET /api/session` は断らず、`data.reason` に `AUTH_REQUIRED`・`AUTH_REVOKED` を入れて返す（api.md 8.13）。画面は同じ文を使う。
 
 ### 3.3 `LIMIT_`（429）
 
