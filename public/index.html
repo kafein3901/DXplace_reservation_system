@@ -11,8 +11,9 @@
   <nav id="bar" hidden>
     <button type="button" data-screen="day">予約状況</button>
     <button type="button" data-screen="mine">自分の予約</button>
-    <button type="button" data-screen="input">利用者の入力</button>
-    <span id="user-label">操作する人：未入力</span>
+    <button type="button" data-screen="change">名前・期生の変更</button>
+    <button type="button" data-screen="login">ログイン</button>
+    <span id="user-label">操作する人：未ログイン</span>
   </nav>
 
   <!-- 利用の開始（screens.md 3.2。USR-2）。入力欄もボタンも置かない。値は QR コードの URL からだけ受け取る -->
@@ -33,20 +34,48 @@
     <p class="message"></p>
   </section>
 
-  <!-- 利用者の入力（screens.md 3.3。USR-3〜USR-7）。欄の並びは台帳が確かめる順と同じ。maxlength は付けない -->
-  <section id="screen-input" hidden>
-    <h1>利用者の入力</h1>
+  <!-- ログイン（screens.md 3.3.2。USR-3, USR-4）。欄の並びは台帳が確かめる順と同じ。maxlength は付けない（3.3.1） -->
+  <section id="screen-login" hidden>
+    <h1>ログイン</h1>
     <p class="message"></p>
-    <form id="input-form">
+    <form id="login-form">
       <fieldset>
         <legend>生徒か教員か</legend>
         <label><input type="radio" name="role" value="student"> 生徒</label>
         <label><input type="radio" name="role" value="teacher"> 教員</label>
       </fieldset>
-      <label>学籍番号 <input type="text" id="input-student-id" autocomplete="off"></label>
-      <label>名前 <input type="text" id="input-name" autocomplete="off"></label>
-      <label id="input-cohort-label">期生 <input type="number" id="input-cohort" min="1" step="1"></label>
-      <button type="submit">決定</button>
+      <label>学籍番号 <input type="text" id="login-student-id" autocomplete="off"></label>
+      <button type="submit">ログイン</button>
+      <button type="button" id="login-to-register">初めて使う人は登録</button>
+    </form>
+  </section>
+
+  <!-- 登録（screens.md 3.3.3。USR-3〜USR-7）。欄の並びは台帳が確かめる順と同じ -->
+  <section id="screen-register" hidden>
+    <h1>登録</h1>
+    <p class="message"></p>
+    <form id="register-form">
+      <fieldset>
+        <legend>生徒か教員か</legend>
+        <label><input type="radio" name="role" value="student"> 生徒</label>
+        <label><input type="radio" name="role" value="teacher"> 教員</label>
+      </fieldset>
+      <label>学籍番号 <input type="text" id="register-student-id" autocomplete="off"></label>
+      <label>名前 <input type="text" id="register-name" autocomplete="off"></label>
+      <label id="register-cohort-label">期生 <input type="number" id="register-cohort" min="1" step="1"></label>
+      <button type="submit">登録</button>
+      <button type="button" id="register-to-login">ログインに戻る</button>
+    </form>
+  </section>
+
+  <!-- 名前・期生の変更（screens.md 3.3.4。USR-5〜USR-7）。利用者が要る画面。生徒か教員か・学籍番号の欄は置かない -->
+  <section id="screen-change" hidden>
+    <h1>名前・期生の変更</h1>
+    <p class="message"></p>
+    <form id="change-form">
+      <label>名前 <input type="text" id="change-name" autocomplete="off"></label>
+      <label id="change-cohort-label">期生 <input type="number" id="change-cohort" min="1" step="1"></label>
+      <button type="submit">変更する</button>
     </form>
   </section>
 
