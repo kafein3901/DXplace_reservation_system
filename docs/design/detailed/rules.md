@@ -1,7 +1,7 @@
 # ルールの判定
 
 - 状態：決定（2026-11-19 の詳細設計のレビューの後）
-- 日付：2026-11-19（2026-11-20 に USR-3・USR-7 の修正に合わせて 6.5 を直した）
+- 日付：2026-11-19（2026-11-20 に USR-3・USR-7 の修正に合わせて 6.5 を直した。機器の実装で 6.7 の `checkDeviceRename` に新しい名前の引数を書き足した）
 - 関係する要件：USR-2〜USR-7, ADM-2, ADM-3, TIM-1〜TIM-4, TIM-6〜TIM-8, RSV-1〜RSV-27, VIW-1, VIW-2, MNG-1〜MNG-3, SEC-3, NFR-3, NFR-4, FUT-5
 - 前提：[architecture.md](../basic/architecture.md)（手順 1〜7、`rules/` は純粋な関数）、[time-and-concurrency.md](../basic/time-and-concurrency.md)（`nowMin`、自動の変化の反映）、[domain-model.md](../basic/domain-model.md)（状態の移り方、数値の履歴）、[screens-and-api.md](../basic/screens-and-api.md) 7（コードは1つだけ返す）
 
@@ -334,7 +334,7 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 関数 | 引数 | 段 | 確かめること | コード |
 | --- | --- | --- | --- | --- |
 | `checkDeviceCreate(sameName)` | store が、削除していない機器から、前後の空白を除いた名前と完全に一致するものを引いた行。なければ `null` | 8 | `null` でなければ断る | `RULE_DEVICE_NAME_DUPLICATE` |
-| `checkDeviceRename(device, sameName)` | `device`：store が番号で引いた機器の行（削除した行も含む。なければ `null`）。`sameName`：`checkDeviceCreate` と同じ | 2 | `device` が `null`、または `deleted_at` が `NULL` でなければ断る | `NOT_FOUND_DEVICE` |
+| `checkDeviceRename(device, sameName, name)` | `device`：store が番号で引いた機器の行（削除した行も含む。なければ `null`）。`sameName`：`checkDeviceCreate` と同じ。`name`：検証を通った新しい名前（`action` を決めるのに使う） | 2 | `device` が `null`、または `deleted_at` が `NULL` でなければ断る | `NOT_FOUND_DEVICE` |
 | | | 8 | `sameName` があり、その番号が `device` と違えば断る | `RULE_DEVICE_NAME_DUPLICATE` |
 | `checkDeviceDelete(device, active)` | `device`：`checkDeviceRename` と同じ。`active`：store が引いた、その機器の予約済・利用中の予約の全件 | 2 | `checkDeviceRename` の段 2 と同じ | `NOT_FOUND_DEVICE` |
 | | | 8 | `active` に利用中が1件でもあれば断る | `RULE_DEVICE_IN_USE` |

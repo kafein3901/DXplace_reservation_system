@@ -2,6 +2,13 @@
 // 時刻はすべて 1970-01-01 00:00 UTC からのミリ秒の整数で扱う
 
 export const MINUTE_MS = 60_000;
+export const JST_OFFSET_MS = 32_400_000; // 9時間
+
+// 日本時間の YYYY-MM-DDTHH:mm にする。秒以下は書かない（rules.md 6.8。TIM-1）。
+// 日本時間との換算はこのファイルだけで行う
+export function formatDateTime(ms) {
+  return new Date(ms + JST_OFFSET_MS).toISOString().slice(0, 16);
+}
 
 // 秒以下を切り捨てて分の境界にする。現在時刻から nowMin を作るのに使う（TIM-4, TIM-6）
 export function floorMinute(ms) {

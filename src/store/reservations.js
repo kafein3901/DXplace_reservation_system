@@ -15,3 +15,21 @@ export function findTransitionCandidates(sql, nowMin) {
 export function updateReservationStatus(sql, id, status) {
   sql.exec('UPDATE reservations SET status = ? WHERE id = ?', status, id);
 }
+
+// その機器の予約済・利用中の予約の全件（reservations_device_status が使われる形）。機器の削除で使う（MNG-2）
+export function findActiveReservationsByDevice(sql, deviceId) {
+  return sql
+    .exec(
+      `SELECT id, device_id, user_id, start_at, end_at, status, cause, walk_in, created_at
+       FROM reservations
+       WHERE device_id = ? AND status IN ('reserved', 'in_use')
+       ORDER BY id`,
+      deviceId,
+    )
+    .toArray();
+}
+
+// 管理者による取消。状態と原因だけを変え、時刻は変えない（api.md 8.21）
+export function updateReservationAdminCancelled(sql, id, cause) {
+  sql.exec("UPDATE reservations SET status = 'admin_cancelled', cause = ? WHERE id = ?", cause, id);
+}

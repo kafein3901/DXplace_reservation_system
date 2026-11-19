@@ -27,6 +27,8 @@ function show(name) {
   setMessage(name, '', null);
   // 名前・期生の変更は出すたびに欄を利用者の値で入れ直す（screens.md 3.3.4）
   if (name === 'change' && user !== null) fillChangeForm();
+  // 予約状況は出すたびに取り直す（screens.md 3.1）。応答は後で届くので、呼んだ側がこの後に出す文は消えない
+  if (name === 'day') loadDayDevices();
 }
 
 // 帯のボタンから画面を出す。利用者が要る画面で利用者がいなければ、行き先を覚えてログインを出す（screens.md 3.1）。
@@ -88,6 +90,49 @@ function showError(code) {
 for (const button of bar.querySelectorAll('[data-screen]')) {
   button.addEventListener('click', () => open(button.dataset.screen));
 }
+
+// ---- 予約状況（screens.md 3.4 の 1。VIW-1） ----
+
+const dayDeviceField = document.getElementById('day-device');
+const dayDateField = document.getElementById('day-date');
+const dayEmpty = document.getElementById('day-empty');
+
+// 直近の応答の now（YYYY-MM-DDTHH:mm、日本時間）。初期値はこれから作り、端末の時計は読まない（screens.md 2.8・3.1）
+let now = null;
+
+// 選んでいる機器 { id, name }。なければ null（screens.md 3.1）。番号は数で持つ
+let selectedDevice = null;
+
+// 機器の選択肢を作り直し、now を持つ。日の欄が空なら now の日を入れる
+async function loadDayDevices() {
+  const result = await callApi('GET', '/api/devices');
+  if (!result.ok) return showError(result.code);
+  now = result.data.now;
+  const { devices } = result.data;
+
+  // 選んでいた機器が選択肢にあればそれを、なければ最初の機器を選ぶ
+  const keep = selectedDevice === null ? undefined : devices.find((device) => device.id === selectedDevice.id);
+  selectedDevice = keep ?? devices[0] ?? null;
+  dayDeviceField.replaceChildren(
+    ...devices.map((device) => {
+      const option = document.createElement('option');
+      option.value = String(device.id);
+      option.textContent = device.name; // SEC-1
+      return option;
+    }),
+  );
+  if (selectedDevice !== null) dayDeviceField.value = String(selectedDevice.id);
+  dayEmpty.hidden = devices.length > 0;
+  dayDeviceField.disabled = devices.length === 0;
+
+  if (dayDateField.value === '') dayDateField.value = now.slice(0, 10);
+}
+
+dayDeviceField.addEventListener('change', () => {
+  const id = Number(dayDeviceField.value);
+  const option = dayDeviceField.selectedOptions[0];
+  selectedDevice = option === undefined ? null : { id, name: option.textContent };
+});
 
 // ---- ログイン・登録・名前と期生の変更（screens.md 3.3。USR-3〜USR-7） ----
 

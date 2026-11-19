@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import {
   toHalfWidthLower,
   validateCohort,
+  validateDeviceName,
   validateLoginId,
   validateName,
   validatePassword,
@@ -73,6 +74,30 @@ describe('USR-5 名前（validateName）', () => {
     ['U+2029', '田中\u2029太郎'],
   ])('USR-5 %s は INPUT_NAME', (_, input) => {
     expect(validateName(input)).toEqual({ ok: false, code: 'INPUT_NAME' });
+  });
+});
+
+describe('MNG-1 機器の名前（validateDeviceName）', () => {
+  test.each([
+    ['1文字', 'P', 'P'],
+    ['30文字', 'あ'.repeat(30), 'あ'.repeat(30)],
+    ['前後の空白を除いて30文字', ` ${'あ'.repeat(30)}　`, 'あ'.repeat(30)],
+    ['前後の空白・全角の空白を除く', '　PC 1 ', 'PC 1'],
+    ['全角の英数字をそのまま返す', 'ＰＣ１', 'ＰＣ１'],
+  ])('MNG-1 %s を受け付ける', (_, input, value) => {
+    expect(validateDeviceName(input)).toEqual({ ok: true, value });
+  });
+
+  test.each([
+    ['空', ''],
+    ['空白だけ', ' 　 '],
+    ['31文字', 'あ'.repeat(31)],
+    ['途中の改行', 'PC\n1'],
+    ['末尾の改行', 'PC1\n'],
+    ['タブ', 'PC\t1'],
+    ['U+0000', 'PC1\u0000'],
+  ])('MNG-1 %s は INPUT_DEVICE_NAME', (_, input) => {
+    expect(validateDeviceName(input)).toEqual({ ok: false, code: 'INPUT_DEVICE_NAME' });
   });
 });
 

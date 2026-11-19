@@ -26,10 +26,22 @@
     </form>
   </section>
 
-  <!-- 機器（screens.md 4.3。MNG-1）。中身は機器の実装で足す -->
+  <!-- 機器（screens.md 4.3。MNG-1, MNG-2）。名前の欄に maxlength は付けない（コードポイントで数えるため） -->
   <section id="screen-devices" hidden>
     <h1>機器</h1>
     <p class="message"></p>
+    <form id="device-create-form">
+      <label>名前 <input type="text" id="device-create-name" autocomplete="off"> 30文字まで</label>
+      <button type="submit">追加する</button>
+    </form>
+    <p id="device-empty" hidden>機器がありません。</p>
+    <ul id="device-list" class="list"></ul>
+    <!-- 名前の変更（一覧の下に1つだけ置く） -->
+    <form id="device-rename-form" hidden>
+      <label>名前 <input type="text" id="device-rename-name" autocomplete="off"> 30文字まで</label>
+      <button type="submit">変更する</button>
+      <button type="button" id="device-rename-cancel">やめる</button>
+    </form>
   </section>
 
   <!-- 共有された情報（screens.md 4.7。ADM-3） -->

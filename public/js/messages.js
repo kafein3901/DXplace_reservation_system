@@ -18,6 +18,10 @@ const COMMON = {
   AUTH_SHARED_INFO_WRONG: 'QR コードが古いか、正しくありません。掲示されている QR コードを読み直してください。',
   LIMIT_ATTEMPTS: '失敗が続いたため、しばらく受け付けません。10分ほどおいてから試してください。',
   AUTH_ADMIN_FAILED: 'ID かパスワードが違います。',
+  NOT_FOUND_DEVICE: 'この機器は見つかりません。削除された可能性があります。',
+  INPUT_DEVICE_NAME: '機器の名前は1〜30文字で入れてください。改行は使えません。',
+  RULE_DEVICE_NAME_DUPLICATE: '同じ名前の機器があります。',
+  RULE_DEVICE_IN_USE: '利用中の予約があるため削除できません。予約の管理で利用を終了させてから削除してください。',
 };
 
 // 管理者の画面の置き換え（screens.md 5.3）

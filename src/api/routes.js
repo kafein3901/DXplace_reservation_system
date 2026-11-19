@@ -15,6 +15,7 @@
 // deps はテストが差し替える部品。derivePassword は PBKDF2 の関数で、テストは呼ばれた回数を数える（api.md 8.3）。
 // 本番の台帳は既定の部品で作った ROUTES だけを使う
 import { login, logout, me, prepareLogin } from './admin-auth.js';
+import { createDevice, deleteDevice, listDevicesForAdmin, listDevicesForUser, renameDevice } from './devices.js';
 import { changeUser, loginUser, registerUser } from './me.js';
 import { createAdminByMaint, resetAdminPasswordByMaint } from './maint.js';
 import { prepareSession, prepareSessionStatus, sessionStatus, startSession } from './session.js';
@@ -81,6 +82,12 @@ export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
     { method: 'POST', path: '/api/me/register', auth: 'user', wrap: false, handler: registerUser },
     { method: 'POST', path: '/api/me/login', auth: 'user', wrap: false, handler: loginUser },
     { method: 'POST', path: '/api/me/change', auth: 'user', wrap: false, handler: changeUser },
+    // 機器（api.md 8.18〜8.22。MNG-1, MNG-2, VIW-1）
+    { method: 'GET', path: '/api/admin/devices', auth: 'admin', wrap: false, handler: listDevicesForAdmin },
+    { method: 'POST', path: '/api/admin/devices', auth: 'admin', wrap: false, handler: createDevice },
+    { method: 'POST', path: '/api/admin/devices/{id}/rename', auth: 'admin', wrap: false, handler: renameDevice },
+    { method: 'POST', path: '/api/admin/devices/{id}/delete', auth: 'admin', wrap: false, handler: deleteDevice },
+    { method: 'GET', path: '/api/devices', auth: 'user', wrap: false, handler: listDevicesForUser },
   ];
 }
 

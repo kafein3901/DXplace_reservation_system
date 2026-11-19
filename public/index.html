@@ -22,10 +22,16 @@
     <p class="message"></p>
   </section>
 
-  <!-- 予約状況（screens.md 3.4。VIW-1）。中身は予約状況の実装で足す -->
+  <!-- 予約状況（screens.md 3.4。VIW-1）。機器の選択と日まで。「最新にする」と時間帯の一覧は予約状況の実装で足す -->
   <section id="screen-day" hidden>
     <h1>予約状況</h1>
     <p class="message"></p>
+    <label>機器 <select id="day-device"></select></label>
+    <label>日 <input type="date" id="day-date"></label>
+    <p id="day-empty" hidden>機器がありません。</p>
+    <!-- 確保・予約なしの利用は予約の操作の実装で動かす。それまでは押せない -->
+    <button type="button" id="day-reserve" disabled>予約する</button>
+    <button type="button" id="day-walk-in" disabled>予約なしで使い始める</button>
   </section>
 
   <!-- 自分の予約（screens.md 3.7。RSV-7）。中身は予約の操作の実装で足す。利用者が要る画面 -->

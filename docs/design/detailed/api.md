@@ -1,7 +1,7 @@
 # API
 
 - 状態：決定（2026-11-19 の詳細設計のレビューの後）
-- 日付：2026-11-19（2026-11-20 に USR-3・USR-7 の修正に合わせて 8.15〜8.17 を直した）
+- 日付：2026-11-19（2026-11-20 に USR-3・USR-7 の修正に合わせて 8.15〜8.17 を直した。機器の実装で 8.20 の `checkDeviceRename` の引数を rules.md にそろえた）
 - 関係する要件：PRE-5, PRE-11, USR-1〜USR-7, ADM-1〜ADM-3, TIM-1〜TIM-7, RSV-2〜RSV-27, VIW-1〜VIW-3, MNG-1〜MNG-4, LOG-1〜LOG-5, SEC-2〜SEC-4, NFR-3, NFR-4, FUT-1, FUT-4
 - 前提：[architecture.md](../basic/architecture.md) 1, 3, 4（Worker は渡すだけ、手順 1〜7）、[screens-and-api.md](../basic/screens-and-api.md) 4〜7（API の一覧、応答の形）、[auth.md](../basic/auth.md) 1, 3, 6, 7（入口の種類、Cookie と Origin、保守用の鍵、試行の制限）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 2, 4（時刻を取る位置、`blockConcurrencyWhile`）、[error-codes.md](error-codes.md)、[schema.md](schema.md) 5（版の適用）
 
@@ -901,7 +901,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 
 1. 自動の変化を反映する。
 2. store が `{id}` の機器の行を削除した行も含めて引き（なければ `null`）、あわせて 8.19 の 5.2 と同じく同じ名前の行を引く。
-3. `checkDeviceRename(機器, 同じ名前の行)`（rules.md 6.7）。断られたら、そのコードを返す。
+3. `checkDeviceRename(機器, 同じ名前の行, 新しい名前)`（rules.md 6.7）。断られたら、そのコードを返す。
 4. `action` が `rename` なら、その行の `name` を上書きし、記録を書く。`unchanged` なら何も書かない。
 
 - **名前は行を上書きし、前の名前は記録に残す。** 予約や記録には機器の現在の名前を出す（MNG-1）ので、予約の側に名前を写さない。表示する API は `devices.name` を引く。

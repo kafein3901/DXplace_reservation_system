@@ -68,7 +68,7 @@ loginForm.addEventListener('submit', async (event) => {
     loginPassword.value = '';
     if (result.ok) {
       setAdmin(result.data);
-      show('devices');
+      open('devices');
     } else {
       setMessage('login', messageFor(result.code, 'admin'), 'error');
     }
@@ -144,8 +144,132 @@ sharedInfoButton.addEventListener('click', async () => {
   }
 });
 
+// ---- 機器（screens.md 4.3。MNG-1, MNG-2） ----
+
+const deviceCreateForm = document.getElementById('device-create-form');
+const deviceCreateName = document.getElementById('device-create-name');
+const deviceEmpty = document.getElementById('device-empty');
+const deviceList = document.getElementById('device-list');
+const deviceRenameForm = document.getElementById('device-rename-form');
+const deviceRenameName = document.getElementById('device-rename-name');
+
+// 名前の変更のフォームで扱っている機器 { id, name }。隠しているときは null
+let renaming = null;
+
+function hideRenameForm() {
+  renaming = null;
+  deviceRenameForm.hidden = true;
+}
+
+// 一覧を取り直して描く。文は消さない（取り直しが断られたときだけ、その文で置き換える。screens.md 3.1）
+async function loadDevices() {
+  const result = await callApi('GET', '/api/admin/devices');
+  if (!result.ok) return showError(result.code);
+  const { devices } = result.data;
+  deviceEmpty.hidden = devices.length > 0;
+  deviceList.replaceChildren(...devices.map(deviceRow));
+}
+
+// 1行は名前と「名前の変更」「削除」のボタン。名前は textContent（SEC-1）
+function deviceRow(device) {
+  const item = document.createElement('li');
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = device.name;
+
+  const rename = document.createElement('button');
+  rename.type = 'button';
+  rename.textContent = '名前の変更';
+  rename.addEventListener('click', () => {
+    renaming = device;
+    deviceRenameName.value = device.name;
+    deviceRenameForm.hidden = false;
+    deviceRenameName.focus();
+  });
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.textContent = '削除';
+  remove.addEventListener('click', () => deleteDevice(device, remove));
+
+  item.append(name, rename, remove);
+  return item;
+}
+
+// コードごとの動き（screens.md 4.3）。NOT_FOUND_DEVICE は文を出し、フォームを隠して一覧を取り直す
+function showDeviceError(code) {
+  showError(code);
+  if (code === 'NOT_FOUND_DEVICE') {
+    hideRenameForm();
+    loadDevices();
+  }
+}
+
+// 操作のボタンを応答が返るまで止めて API を呼ぶ（screens.md 2.6）
+async function sendWith(button, path, body) {
+  button.disabled = true;
+  try {
+    return await callApi('POST', path, body);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// 追加。名前は欄の値のまま送る（前後の空白は台帳が除く）
+deviceCreateForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  setMessage('devices', '', null);
+  const name = deviceCreateName.value;
+  if (name.trim() === '') return setMessage('devices', '名前を入れてください。', 'error');
+
+  const result = await sendWith(deviceCreateForm.querySelector('button'), '/api/admin/devices', { name });
+  // INPUT_DEVICE_NAME・RULE_DEVICE_NAME_DUPLICATE は欄を残す
+  if (!result.ok) return showDeviceError(result.code);
+  deviceCreateName.value = '';
+  setMessage('devices', `「${result.data.name}」を追加しました。`, 'success');
+  loadDevices();
+});
+
+// 名前の変更。同じ名前のまま決定しても成功する
+deviceRenameForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  setMessage('devices', '', null);
+  if (renaming === null) return;
+  const name = deviceRenameName.value;
+  if (name.trim() === '') return setMessage('devices', '名前を入れてください。', 'error');
+
+  const button = deviceRenameForm.querySelector('button[type="submit"]');
+  const result = await sendWith(button, `/api/admin/devices/${renaming.id}/rename`, { name });
+  if (!result.ok) return showDeviceError(result.code);
+  hideRenameForm();
+  setMessage('devices', '名前を変えました。', 'success');
+  loadDevices();
+});
+
+document.getElementById('device-rename-cancel').addEventListener('click', hideRenameForm);
+
+// 削除。確かめの文に件数は入れない（screens.md 2.7）。RULE_DEVICE_IN_USE は一覧が変わっていないので取り直さない
+async function deleteDevice(device, button) {
+  if (!confirm(`「${device.name}」を削除しますか？ この機器の予約済の予約はすべて取り消されます。`)) return;
+  setMessage('devices', '', null);
+  const result = await sendWith(button, `/api/admin/devices/${device.id}/delete`, {});
+  if (!result.ok) return showDeviceError(result.code);
+  if (renaming !== null && renaming.id === device.id) hideRenameForm();
+  setMessage('devices', `「${result.data.name}」を削除しました。`, 'success');
+  loadDevices();
+}
+
+// 画面を出し、出すたびに取り直す画面なら取り直す（screens.md 4.1・3.1）
+function open(name) {
+  show(name);
+  if (name === 'devices') {
+    hideRenameForm();
+    loadDevices();
+  }
+}
+
 for (const button of bar.querySelectorAll('[data-screen]')) {
-  button.addEventListener('click', () => show(button.dataset.screen));
+  button.addEventListener('click', () => open(button.dataset.screen));
 }
 
 // 開いたとき（screens.md 2.5）
@@ -153,7 +277,7 @@ async function start() {
   const result = await callApi('GET', '/api/admin/me');
   if (result.ok) {
     setAdmin(result.data);
-    show('devices');
+    open('devices');
     return;
   }
   show('login');

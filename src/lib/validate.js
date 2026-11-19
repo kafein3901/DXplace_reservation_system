@@ -29,11 +29,24 @@ const FORBIDDEN_IN_NAME = /[\p{Cc}\u2028\u2029]/u;
 const MAX_NAME_LENGTH = 30;
 
 export function validateName(s) {
-  if (FORBIDDEN_IN_NAME.test(s)) return { ok: false, code: 'INPUT_NAME' };
+  return validateDisplayText(s, MAX_NAME_LENGTH, 'INPUT_NAME');
+}
+
+// 機器の名前（MNG-1、rules.md 6.6）。手順は validateName と同じで、コードだけが違う。
+// 全角と半角、大文字と小文字はそろえない
+const MAX_DEVICE_NAME_LENGTH = 30;
+
+export function validateDeviceName(s) {
+  return validateDisplayText(s, MAX_DEVICE_NAME_LENGTH, 'INPUT_DEVICE_NAME');
+}
+
+// 名前と機器の名前に共通の手順
+function validateDisplayText(s, maxLength, code) {
+  if (FORBIDDEN_IN_NAME.test(s)) return { ok: false, code };
   const value = s.trim();
   // 長さはコードポイントで数える（サロゲートペアを2文字と数えない）
   const length = [...value].length;
-  if (length < 1 || length > MAX_NAME_LENGTH) return { ok: false, code: 'INPUT_NAME' };
+  if (length < 1 || length > maxLength) return { ok: false, code };
   return { ok: true, value };
 }
 
