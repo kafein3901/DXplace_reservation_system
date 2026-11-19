@@ -1,6 +1,6 @@
 # ルールの判定
 
-- 状態：作成中（枠組みを決定。ルールごとの節は、機能ごとの設計で足す。6.11 まで決定）
+- 状態：作成中（枠組みを決定。ルールごとの節は、機能ごとの設計で足す。6.12 まで決定）
 - 日付：2026-11-19
 - 関係する要件：RSV-1〜RSV-27, TIM-1〜TIM-7, MNG-1〜MNG-3, ADM-2, USR-3〜USR-7, SEC-3, NFR-4
 - 前提：[architecture.md](../basic/architecture.md)（手順 1〜7、`rules/` は純粋な関数）、[time-and-concurrency.md](../basic/time-and-concurrency.md)（`nowMin`、自動の変化の反映）、[domain-model.md](../basic/domain-model.md)（状態の移り方、数値の履歴）、[screens-and-api.md](../basic/screens-and-api.md) 7（コードは1つだけ返す）
@@ -134,8 +134,9 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 予約状況 | VIW-1, VIW-2 | 済（6.9。api.md 8.24） |
 | 確保 | RSV-2〜RSV-6 | 済（6.10。api.md 8.25） |
 | 予約なしの利用 | RSV-17, RSV-20 | 済（6.11。api.md 8.27） |
+| 自分の予約 | RSV-7 | 済（6.12。api.md 8.29） |
 | 時間帯の変更 | RSV-9〜RSV-12 | 未 |
-| 取消 | RSV-8 | 未 |
+| 取消 | RSV-8 | 済（6.12。api.md 8.30） |
 | 利用開始 | RSV-14〜RSV-16 | 未 |
 | 利用終了 | RSV-18 | 未 |
 | 管理者による取消・終了 | MNG-3 | 未 |
@@ -505,6 +506,51 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | RSV-17（件数） | 予約済・利用中が上限（3件）ある利用者でも受け付ける | ― |
 | RSV-27（`checkWalkIn` の順） | ― | `user` が `null` で機器も削除済み → `NOT_FOUND_USER`。過去かつ空いていない → `RULE_PAST`。長さ超えかつ空いていない → `RULE_LENGTH`。空いていないかつ後の予約とも重なる → `RULE_DEVICE_BUSY` |
 
+### 6.12 自分の予約・取消（`src/rules/reservations.js`。RSV-7, RSV-8）
+
+操作ごとの関数：
+
+| 関数 | 引数 |
+| --- | --- |
+| `checkMyReservations({ user, userActive })` | `user`：識別の組で引いた利用者（api.md 8.16。なければ `null`）。`userActive`：その利用者の予約済・利用中の全件（全機器。機器の名前を付けたもの。api.md 8.29） |
+| `checkCancel({ user, reservation })` | `user`：同じ。`reservation`：store が番号で引いた予約（状態を問わない。なければ `null`） |
+
+`checkMyReservations`：
+
+| 段 | 確かめること・すること | コード |
+| --- | --- | --- |
+| 1 | （`api/` が先に確かめる）`validateRole` → `validateStudentId` | `INPUT_ROLE`・`INPUT_STUDENT_ID` |
+| 2 | `user` が `null` でない | `NOT_FOUND_USER` |
+| ― | `userActive` のうち、状態が `reserved`・`in_use` のものを、開始時刻の順（同じなら番号の順）に並べる | ― |
+
+受け付けるときは `{ ok: true, reservations }` を返す。`reservations` は引数の要素をそのまま並べた配列（6.9 の `daySlots` と同じく、項目は選ばない）。
+
+`checkCancel`：
+
+| 段 | 確かめること | コード |
+| --- | --- | --- |
+| 1 | （`api/` が先に確かめる）`validateRole` → `validateStudentId` | `INPUT_ROLE`・`INPUT_STUDENT_ID` |
+| 2 | `user` が `null` でない → `reservation` が `null` でなく、`reservation.user_id` が `user.id` と同じ | `NOT_FOUND_USER` → `NOT_FOUND_RESERVATION` |
+| 3 | `reservation.status` が `reserved` | `STATE_NOT_RESERVED` |
+| 4〜8 | なし（時間帯を解放するだけで、時刻・長さ・件数・重なりに関わらない） | ― |
+
+受け付けるときは `{ ok: true }` を返す（1.1 の「ルールで決まる値」はない）。
+
+- **予約なしの利用で始めたものも一覧に出す（RSV-7）。** RSV-1 で予約は予約なしの利用を含む。利用終了（RSV-18）と終了時刻の変更（RSV-10）をこの一覧から行うので、除くとその入口がなくなる（2026-11-19 に開発者が了承）。
+- **一覧でも状態を rules で確かめる。** store は予約済・利用中だけを引くが、一覧に出す状態（RSV-7「予約済・利用中」）は rules が決める（3、6.10 と同じ）。
+- **本人の予約でないときは、ないときと同じコード（2）。** 他の利用者の予約の番号を送っても、その予約があるかどうか・状態はわからない。状態の段 3 は本人の予約だとわかった後にだけ確かめる。
+- **猶予の中の予約済は取り消せる（RSV-8）。** 開始時刻を過ぎていても、状態が予約済なら受け付ける（domain-model.md「要件の読み方」）。猶予を過ぎた予約は反映した後には無断不使用なので、段 3 で断る（5.3、RSV-22。猶予の終わりがちょうど `nowMin` なら無断不使用が先）。
+- **すでに取消の予約、利用中の予約も `STATE_NOT_RESERVED`。** 2回目の取消を成功として返さない。結果の状態が取消とは限らず（無断不使用・管理者による取消もある）、何が起きたかが曖昧になるため（2026-11-19 に開発者が了承）。利用中の予約は利用終了（RSV-18）で終える。
+- **削除した機器の予約は考えない。** 機器を削除すると予約済は管理者による取消になり、利用中があれば削除を断る（6.7）ので、予約済・利用中の予約の機器は必ず削除されていない。
+
+テストの観点（ルールの層）：
+
+| ID | 受け付ける | 断る |
+| --- | --- | --- |
+| RSV-7（`checkMyReservations`） | 予約済・利用中（予約なしの利用で始めたものを含む）を開始時刻の順に返す。同じ開始時刻なら番号の順。別の機器の予約も合わせて返す。`userActive` が空なら空の配列。取消・無断不使用・終了などが混ざっていても落とす | `user` が `null`（`NOT_FOUND_USER`） |
+| RSV-8（`checkCancel`） | 本人の予約済。開始時刻を過ぎた予約済（猶予の中） | `user` が `null`（`NOT_FOUND_USER`）。`reservation` が `null`、他の利用者の予約（`NOT_FOUND_RESERVATION`）。本人の利用中・取消・無断不使用・終了・管理者による取消・管理者による終了（`STATE_NOT_RESERVED`） |
+| RSV-27（`checkCancel` の順） | ― | `user` が `null` で予約も `null` → `NOT_FOUND_USER`。他の利用者の取消済みの予約 → `NOT_FOUND_RESERVATION`（`STATE_` にならない） |
+
 ## 7. 共通のテストの観点
 
 | 対象 | 観点 |
@@ -537,6 +583,8 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | `RULE_PAST` を開始と終了で分ける | 画面は入力と `now` からどちらの欄かわかる。コードが増えるだけ（6.10） |
 | RSV-20 を `RULE_OVERLAP` にまとめる | 利用者が、今は使えないのか、終了時刻を早めれば使えるのかを見分けられない（6.11） |
 | 予約なしの利用でも段 5（`RULE_TIME_ORDER`）を確かめる | 段 4 を通れば必ず成り立ち、断る場合をテストで作れない（6.11） |
+| 自分の予約の一覧から予約なしの利用で始めたものを除く | RSV-10・RSV-18 の操作の入口がなくなる（6.12） |
+| すでに取消の予約への取消を成功として返す | 結果の状態が取消とは限らず、何が起きたかが曖昧になる（6.12） |
 
 ## 要件の読み方（確認済み）
 

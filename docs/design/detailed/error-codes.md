@@ -2,7 +2,7 @@
 
 - 状態：作成中（形と共通のコードを決定。機能ごとのコードは、機能ごとの設計で足す）
 - 日付：2026-11-19
-- 関係する要件：RSV-27, TIM-3, TIM-6, TIM-7, RSV-3〜RSV-6, RSV-17, RSV-20, VIW-1, USR-1〜USR-6, MNG-1, MNG-2, ADM-2, ADM-3, SEC-3, NFR-4, FUT-1
+- 関係する要件：RSV-27, TIM-3, TIM-6, TIM-7, RSV-3〜RSV-8, RSV-17, RSV-20, VIW-1, USR-1〜USR-6, MNG-1, MNG-2, ADM-2, ADM-3, SEC-3, NFR-4, FUT-1
 - 前提：[screens-and-api.md](../basic/screens-and-api.md) 7（応答の形、頭と HTTP、コードは1つだけ）、[rules.md](rules.md) 1, 4（戻り値の形、確かめる順）、[api.md](api.md) 4（API に共通の確かめる順）、[auth.md](../basic/auth.md) 3, 8
 
 ここでは、理由のコードの一覧の形と、すべての API に共通のコードを決める。コードは `rules/`・`lib/`・`api/` が返し、画面の `public/js/messages.js` が文に直す。
@@ -84,16 +84,25 @@
 | --- | --- | --- | --- | --- |
 | `NOT_FOUND_API` | RSV-27 | すべて | 共1 | そのメソッドとパスの API がない。パスの `{id}` が正の整数の形でないときも含む |
 | `NOT_FOUND_ADMIN` | ADM-2 | パスワードの設定し直し（保守用） | 2 | その番号の管理者がいない、または削除されている（rules.md 6.1） |
-| `NOT_FOUND_USER` | USR-3, USR-4 | 利用者の操作の API（api.md 8.16。`POST /api/me` を除く。確保（api.md 8.25）・予約なしの利用（8.27）で確かめる） | 2 | 送られた識別の組（生徒か教員か・そろえた学籍番号）の利用者がいない（`POST /api/me` をまだしていない）。段 2 の最初に確かめる |
+| `NOT_FOUND_USER` | USR-3, USR-4 | 利用者の操作の API（api.md 8.16。`POST /api/me` を除く。確保（api.md 8.25）・予約なしの利用（8.27）・自分の予約（8.29）・取消（8.30）で確かめる） | 2 | 送られた識別の組（生徒か教員か・そろえた学籍番号）の利用者がいない（`POST /api/me` をまだしていない）。段 2 の最初に確かめる |
+| `NOT_FOUND_RESERVATION` | RSV-8 | 取消（`POST /api/reservations/{id}/cancel`）。時間帯の変更・利用開始・利用終了でも使う（その機能の設計で「返す API」に足す） | 2 | その番号の予約がない、または送られた識別の組の利用者の予約でない（どちらかを区別しない。rules.md 2、6.12）。`NOT_FOUND_USER` の後に確かめる |
 | `NOT_FOUND_DEVICE` | MNG-1, MNG-2, VIW-1, RSV-2 | 機器の名前の変更・削除（`POST /api/admin/devices/{id}/rename`、`…/delete`）、予約状況（`GET /api/devices/{id}/day`）、確保（`POST /api/reservations`）、予約なしの利用（`POST /api/walk-ins`） | 2 | その番号の機器がない、または削除されている（rules.md 6.7、6.9 の `checkDeviceActive`） |
 
 - `NOT_FOUND_USER` を受けた画面は、利用者の入力の画面に移る。利用者がいるかどうかが外からわかるが、利用者の入力をすればだれでも作れるので、隠しても守れるものがない（PRE-1）。
 
-ほかの対象ごとのコード（`NOT_FOUND_RESERVATION` など。段 2）は、機能ごとの設計で足す。
+- `NOT_FOUND_RESERVATION` で他の利用者の予約を「ない」と同じに扱うのは、番号を変えて送っても他の利用者の予約の有無や状態がわからないようにするため（screens-and-api.md 7）。画面は受けたら自分の予約を読み直す。
+
+ほかの対象ごとのコード（段 2）は、機能ごとの設計で足す。
 
 ### 3.5 `STATE_`（409）
 
-機能ごとの設計で足す（段 3）。
+| コード | 要件 | 返す API | 段 | 意味 |
+| --- | --- | --- | --- | --- |
+| `STATE_NOT_RESERVED` | RSV-8, RSV-23 | 取消（`POST /api/reservations/{id}/cancel`）。時間帯の変更（RSV-9 の開始時刻の変更）・利用開始でも使うかは、その機能の設計で決める | 3 | 本人の予約だが、自動の変化を反映した後の状態が予約済でない（利用中・取消・無断不使用・終了・管理者による取消・管理者による終了）。すでに取り消した予約への2回目の取消も含む（rules.md 6.12） |
+
+- 2回目の取消を成功にしないのは、結果の状態が取消とは限らず、何が起きたかが曖昧になるため（rules.md 6.12）。画面は受けたら自分の予約を読み直す。
+
+ほかの `STATE_` のコード（段 3）は、機能ごとの設計で足す。
 
 ### 3.6 `RULE_`（409）
 
