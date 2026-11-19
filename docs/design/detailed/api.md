@@ -847,9 +847,16 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 
 利用者の画面で、予約状況・確保・予約なしの利用の機器の選択肢に使う。経路の表では、認証の種類は「利用者」、包むかは「包まない」。識別の組は受け取らない（見るだけで、利用者として操作しない。screens-and-api.md 5 の予約状況と同じ考え方）。
 
-処理：準備（8.12 の 1）→ `clock()` → 共3（8.12 の 2）→ `transactionSync` の中で自動の変化を反映し、store が削除していない機器を番号の順に引く → 成功を返す（`Set-Cookie` で期限を延ばす。8.12）。
+処理：準備（8.12 の 1）→ `clock()` で現在時刻を取り、`nowMin = floorMinute(now)` → 共3（8.12 の 2）→ `transactionSync` の中で自動の変化を反映し、store が削除していない機器を番号の順に引く → 成功を返す（`Set-Cookie` で期限を延ばす。8.12）。
 
-応答の `data`：8.18 と同じ形（`devices`。1つは `{ id, name }`）。管理者の一覧と同じ中身で、学籍番号などの利用者の情報は含まない。
+応答の `data`：
+
+| 項目 | 内容 |
+| --- | --- |
+| `devices` | 8.18 と同じ形（1つは `{ id, name }`）。管理者の一覧と同じ中身で、学籍番号などの利用者の情報は含まない |
+| `now` | 台帳の現在時刻（`formatDateTime(nowMin)`。8.24 と同じ） |
+
+- **`now` を返す（2026-11-19 に screens.md 3 の設計で足した）。** 予約状況（8.24）は `date` を送らないと呼べないが、`now` はその応答で初めて得られる。画面は予約状況を出す前に必ずこの一覧を呼ぶので、ここで今日の日を決め、端末の時計を読まずに済む（TIM-1、screens.md 2.8）。管理者の一覧（8.18）には足さない（管理者の画面は日を使わない）。
 
 返しうるコード（確かめる順）：`NOT_FOUND_API` → `AUTH_REQUIRED` → `AUTH_REVOKED`。
 
@@ -862,6 +869,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | ID | 確かめること |
 | --- | --- |
 | MNG-1 | 追加すると `devices` に1行でき（名前は前後の空白を除いた値、`deleted_at` は `NULL`）、応答の `data` がその値になる。`GET /api/admin/devices`・`GET /api/devices` に番号の順で出る |
+| TIM-1 | `GET /api/devices` の `now` が、差し替えた時計の時刻の秒を切り捨てた日本時間の `YYYY-MM-DDTHH:mm`（例：UTC 15:00:59 → 翌日の `00:00`） |
 | MNG-1 | 同じ名前（前後の空白だけ違うものを含む）の追加は `RULE_DEVICE_NAME_DUPLICATE`（409）で、行が増えない。大文字と小文字、全角と半角だけが違う名前は追加できる |
 | MNG-1 | 削除した機器と同じ名前は追加できる。名前の変更でも、削除した機器の名前に変えられる |
 | MNG-1 | 名前を変えると行が上書きされ、`device_renamed` の `before`・`after` が前後の名前。ほかの機器の名前への変更は `RULE_DEVICE_NAME_DUPLICATE`。今と同じ名前への変更は成功し、`events` が増えない |
