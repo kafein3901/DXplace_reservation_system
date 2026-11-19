@@ -46,8 +46,9 @@ Worker はこれ以外に何もしない。版の食い違い（下の 5）の�
 ### 3.2 台帳（`src/ledger.js`）
 
 - constructor で、版の適用を `blockConcurrencyWhile` に包んで行う（schema.md 5）。
-- `handle(request, clock)` も `ledger.js` に置く。3.3 の共通の流れを組み、経路は `src/api/routes.js` の表から引く（architecture.md 4）。
+- `handle(request, clock, routes = ROUTES)` も `ledger.js` に置く。3.3 の共通の流れを組み、経路は `routes`（既定は `src/api/routes.js` の表 `ROUTES`）から引く（architecture.md 4）。
 - `fetch(request)` は `handle(request, Date.now)` を呼ぶだけ。テストは `runInDurableObject` で `handle` を任意の時計で呼ぶ（time-and-concurrency.md 2, 5）。
+- **`routes` を差し替えられるのはテストのため。** 共通の流れ（下の 7 の経路・`Origin`・本文・ヘッダ・例外・時計・自動の変化）を、特定の API に頼らずに確かめるため、テストは自分で作った経路の表を渡す（例：書き込んだ後に例外を投げる処理）。`fetch` は表を渡さないので、本番の台帳にテスト用の経路は入らない（time-and-concurrency.md 5）。2026-11-19 に実装の方針を決めるときに足した。採らなかった案：共通の流れのテストを、最初の API（保守用の API）を通して書く。骨組みの作業の中で確かめられず、例外のテストには書き込んでから例外を投げる経路が要る。
 
 ### 3.3 経路の表（`src/api/routes.js`）
 

@@ -56,6 +56,8 @@
 
 **詳細設計のレビューが終わった（2026-11-19。指摘はすべて開発者が了承して直した）。詳細設計の文書はすべて「決定」になった。** 要件の ID の抜けと、理由のコードの食い違いはなかった。直したもの：各文書の頭の「関係する要件」、古い記述（「機能ごとの設計で足す」など）、screens.md 5 の節の並び、screens.md 3.1 の `device_id` を `Number()` で持つこと・5.2 の空の日の文、api.md 3.5（自動の変化の書き込み。予約の `status` だけを変え、記録は `actor_kind = 'auto'`・`at` はルール上の時刻・`detail` は `from`・`to`）、schema.md 3（`reservations_device_status` に利用開始の前倒し）・2.9、api.md 3.2（`handle` は `ledger.js`）、テストの観点（api.md 7 に自動の変化と `auth_failures` の10,000行、rules.md 6.10 に TIM-8）。基本設計も直した：architecture.md 3 の手順を「3 入力の形式 → 4 自動の変化の反映」に入れ替えた（api.md は段 1 で断れば反映しない形で書いてあったため。PBKDF2 で包む操作の例外も書いた）。手順の番号を参照する time-and-concurrency.md 3・4、rules.md 4・5.3、api.md 3.3・8.6 も合わせた。screens-and-api.md 7 の例を `RULE_ADMIN_LAST` に、6 の `now` を入れる応答を予約状況・機器の一覧・自分の予約にした。
 
+**実装の1つ目、土台と台帳の骨組みの方針を決めた（2026-11-19 に開発者が了承）。実装はまだしていない。** 中身は下の「次の作業」1。設計文書は2か所を直した：api.md 3.2（`handle(request, clock, routes = ROUTES)`。共通の流れをテストが自分の経路の表で確かめるため。`fetch` は表を渡さない）、rules.md 3.1・5.1（`settingAt` は `src/rules/settings.js`、`dueTransitions` は `src/rules/transitions.js`）。
+
 ## 詳細設計の方針（2026-11-19 に開発者が決定）
 
 ### 進め方：詳細設計を最後まで書いてレビューし、その後に機能ごとに実装する（2026-11-19 に開発者が変更）
@@ -103,12 +105,18 @@
 
 ### 次の作業
 
-1. **実装の1つ目、土台と台帳の骨組み。次のセッションはここから始める。** `package.json`・`.nvmrc`・`wrangler.jsonc`・Vitest（`@cloudflare/vitest-pool-workers`）の設定、`src/index.js`（api.md 3.1）、`src/ledger.js` と `handle`（3.2）、経路の表と共通の流れ（3.3）、応答の形（1）、共通の確かめる順（4）、自動の変化の反映と書き込み（3.5、rules.md 5）、`src/store/migrations.js` と版の適用（schema.md 5）、GitHub Actions のテストのジョブ。下の「実装の段階に回すこと」を見る。書く前に、構成・ファイル分割・データの流れと理由・代替案を示して了承を得る（CLAUDE.md「開発の進め方」）。ライブラリやツールを増やすときは確認をとる。
-2. 保守用の API の実装（api.md 6・8.1〜8.3、rules.md 6.1・6.2、screens.md 6.2 の段 1）。
+1. **実装の1つ目、土台と台帳の骨組み。次のセッションはここから始める。方針は了承済み（2026-11-19）なので、示し直さずに下のとおり書き、`npm test` の結果を報告する。**
+   - 範囲：`package.json`・`.nvmrc`・`wrangler.jsonc`・Vitest（`@cloudflare/vitest-pool-workers`）の設定、`src/index.js`（api.md 3.1）、`src/ledger.js` と `handle`（3.2）、経路の表と共通の流れ（3.3）、応答の形（1）、共通の確かめる順（4）、自動の変化の反映と書き込み（3.5、rules.md 3.1・5）、版 1 のスキーマと適用（schema.md 2〜5）、GitHub Actions のテストのジョブ（デプロイのジョブは作らない）。
+   - ファイル：`package.json`（`type: module`、`engines`、scripts は `test` と `dev` だけ）、`.nvmrc`（26.13.0）、`wrangler.jsonc`（`compatibility_date` を固定、`LEDGER` の束縛、`new_sqlite_classes: ["Ledger"]`）、`vitest.config.js`、`.github/workflows/test.yml`（`npm ci` → `npm test`、Node は `.nvmrc`）、`src/index.js`、`src/ledger.js`、`src/api/routes.js`（表は空と、パスを引く関数）、`src/api/respond.js`（成功・断る・500、頭から HTTP、ヘッダ）、`src/api/auto.js`（反映の手順。各 API が `transactionSync` の中で呼ぶ）、`src/lib/body.js`（16 KiB を確かめてから JSON）、`src/lib/time.js`（いまは `floorMinute` だけ）、`src/rules/settings.js`（`settingAt`）、`src/rules/transitions.js`（`dueTransitions`）、`src/store/migrations.js`・`reservations.js`・`settings.js`・`events.js`、`test/lib/`・`test/rules/`・`test/ledger/`。
+   - パッケージ：`wrangler`（4.165.0）、`vitest`（4 系。`@cloudflare/vitest-pool-workers` 0.23.0 が `^4.1.0` を求めるため。5 系にしない）、`@cloudflare/vitest-pool-workers`（0.23.0）の3つだけ。版は 2026-11-19 に npm で見た最新。
+   - 共3：この作業では認証の種類「誰でも」だけを作り、ほかの種類は表に置く場所だけ用意する。Cookie・鍵のハッシュなどの準備と、利用の開始・管理者の認証の例外の順も、それぞれの機能で足す。
+   - `assets` と `public/`：最初の画面（管理者の認証）の作業まで設定しない。仮の画面は置かない。
+   - テスト：`SCHEMA`（schema.md 5.4）、`API`（api.md 7 の経路・`Origin`・本文・ヘッダ・例外・時計。テスト用の経路の表を `handle` に渡す。api.md 3.2）、`RSV-21`・`RSV-22`・`RSV-26`（`dueTransitions`・`settingAt` のルールの層と、台帳の層の反映・記録・断られても残ること）、`TIM-4`（`floorMinute`）。api.md 7 の `auth_failures` の10,000行は、2 の保守用の API に回す。
+2. 保守用の API の実装（api.md 6・8.1〜8.3、rules.md 6.1・6.2、screens.md 6.2 の段 1）。api.md 7 の `auth_failures` の10,000行のテストもここで書く。
 3. 以降は「機能を縦に切る順」で1つずつ実装する：管理者の認証 → 共有された情報の設定 → 利用の開始 → 利用者の入力 → 機器 → 予約の操作①〜⑤ → 予約の管理 → 数値の変更 → 管理者の画面からの管理者のアカウント。画面（screens.md）はその機能の実装に含める。
 4. 結合テスト（上の「進め方」4）。NFR-2 の結果の控えの置き場所はこのときに決める（screens.md 6.4）。
 
-実装の段階（上の「進め方」3）に回すこと：土台（`package.json`・`.nvmrc`・`wrangler.jsonc`・Vitest の設定。Node は手元が v26.13.0、wrangler は spike で 4.163.0 を使った）、台帳の骨組み（api.md 3 の経路の表と共通の流れ、1 の応答、4 の共通の確かめる順）と schema.md 5 の版の適用。api.md 3.4 と schema.md 5.4 の基盤の機能は spike で確かめた（2026-11-19。下の「schema.md で決めた持ち越し事項」）ので、実装では台帳の層のテストに書くだけでよい。GitHub Actions は、実装の段階ではテストのジョブだけを作り、デプロイのジョブは結合テストの後に作る（Cloudflare の API トークンは学校のアカウントが作る。PRE-11 は未定）。
+実装の段階（上の「進め方」3）に回すこと：土台（`package.json`・`.nvmrc`・`wrangler.jsonc`・Vitest の設定。Node は手元が v26.13.0、wrangler は spike で 4.163.0 を使った。版は上の 1 で決めた）、台帳の骨組み（api.md 3 の経路の表と共通の流れ、1 の応答、4 の共通の確かめる順）と schema.md 5 の版の適用。api.md 3.4 と schema.md 5.4 の基盤の機能は spike で確かめた（2026-11-19。下の「schema.md で決めた持ち越し事項」）ので、実装では台帳の層のテストに書くだけでよい。GitHub Actions は、実装の段階ではテストのジョブだけを作り、デプロイのジョブは結合テストの後に作る（Cloudflare の API トークンは学校のアカウントが作る。PRE-11 は未定）。
 
 schema.md で決めた持ち越し事項：終了 > 開始の制約を付けない（2.3）、記録と予約の索引（3）、版と適用（5）。DO の SQLite で外部キーが確かめられること、`AUTOINCREMENT` と `STRICT` が使えること、索引が使われること、`transactionSync` の取り消し、`stub.fetch` でヘッダと本文が届くことは、詳細設計を続ける前に spike（`/schema-check`、`/headers`）で確かめた（2026-11-19。手元と本番の基盤の両方で期待どおり。schema.md 1・3、api.md 3.4）。spike は個人のアカウントに送り直した。
 
