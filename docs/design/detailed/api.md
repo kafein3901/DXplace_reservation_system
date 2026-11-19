@@ -72,6 +72,8 @@ API は1つの表に並べる。1行が1つの API。
 - `stub.fetch(request)` で、`CF-Connecting-IP` と `Origin` のヘッダが台帳にそのまま届くこと（台帳の層のテストでは、テストがヘッダを付けて呼ぶ）。
 - Worker から台帳に渡した要求の本文を、台帳で読めること。
 
+**基盤で確かめたこと（2026-11-19、spike の `/headers`）**：Worker が受けた要求をそのまま `stub.fetch(request)` で渡すと、台帳で `Origin`・`Cookie` のヘッダと本文が読めた。`CF-Connecting-IP` は、本番の基盤では送り元の IP の値が入り、手元の `wrangler dev` では `127.0.0.1` だった。台帳の層のテストでは、引き続きテストがヘッダを付けて呼ぶ。
+
 ## 4. 共通の確かめる順
 
 rules.md 4 の段 1 より前に、すべての API で次の順に確かめる。コードは error-codes.md の「共1〜共4」。

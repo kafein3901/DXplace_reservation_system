@@ -63,9 +63,9 @@
 
 1. 最初の機能「保守用の API（`POST /api/maint/admins`、`POST /api/maint/admins/{id}/reset-password`。ADM-2, SEC-3, SEC-4）」の詳細設計（実装はしない）。順は上の「いまの段階」。まず設計を示して了承を得る：本文の項目、管理者の ID・表示用の名前・パスワードの検証（`lib/`）、鍵の比べ方（api.md 6）、試行の制限（`maint`、10分ごとに5回）、`MAINT_KEY` が未設定のときのコード、PBKDF2 を包む経路、記録（`actor_kind = 'maint'`）、PowerShell の手順。コードを error-codes.md 3 に、入出力を api.md 8 に足す。機能ごとに、error-codes.md 3 にコードを、api.md 8 に入出力を足す。RSV-11 の「変更する時刻」の読み方は確認済み（rules.md「要件の読み方」）。機器の機能の設計では、名前の上限（MNG-1。design-values.md に足す）と名前の比べ方（全角・大小。schema.md 2.2）も決める。
 
-実装の段階（上の「進め方」3）に回すこと：土台（`package.json`・`.nvmrc`・`wrangler.jsonc`・Vitest の設定。Node は手元が v26.13.0、wrangler は spike で 4.163.0 を使った）、台帳の骨組み（api.md 3 の経路の表と共通の流れ、1 の応答、4 の共通の確かめる順）と schema.md 5 の版の適用、api.md 3.4 と schema.md 5.4 の「実装で確かめること」の確認。GitHub Actions は、実装の段階ではテストのジョブだけを作り、デプロイのジョブは結合テストの後に作る（Cloudflare の API トークンは学校のアカウントが作る。PRE-11 は未定）。
+実装の段階（上の「進め方」3）に回すこと：土台（`package.json`・`.nvmrc`・`wrangler.jsonc`・Vitest の設定。Node は手元が v26.13.0、wrangler は spike で 4.163.0 を使った）、台帳の骨組み（api.md 3 の経路の表と共通の流れ、1 の応答、4 の共通の確かめる順）と schema.md 5 の版の適用。api.md 3.4 と schema.md 5.4 の基盤の機能は spike で確かめた（2026-11-19。下の「schema.md で決めた持ち越し事項」）ので、実装では台帳の層のテストに書くだけでよい。GitHub Actions は、実装の段階ではテストのジョブだけを作り、デプロイのジョブは結合テストの後に作る（Cloudflare の API トークンは学校のアカウントが作る。PRE-11 は未定）。
 
-schema.md で決めた持ち越し事項：終了 > 開始の制約を付けない（2.3）、記録と予約の索引（3）、版と適用（5）。実装で確かめること：DO の SQLite で外部キーが確かめられること、`AUTOINCREMENT` と `STRICT` が使えること、索引が使われること（schema.md 5.4）。
+schema.md で決めた持ち越し事項：終了 > 開始の制約を付けない（2.3）、記録と予約の索引（3）、版と適用（5）。DO の SQLite で外部キーが確かめられること、`AUTOINCREMENT` と `STRICT` が使えること、索引が使われること、`transactionSync` の取り消し、`stub.fetch` でヘッダと本文が届くことは、詳細設計を続ける前に spike（`/schema-check`、`/headers`）で確かめた（2026-11-19。手元と本番の基盤の両方で期待どおり。schema.md 1・3、api.md 3.4）。spike は個人のアカウントに送り直した。
 
 （上の分け方は design/README.md「詳細設計の文書」に書いた。2026-11-19）
 
@@ -128,7 +128,7 @@ design-values.md のうち、機器の名前の上限（MNG-1）は未定のま�
 - **NFR-2 の確かめ方**：要件は「校内の通常の回線と手持ちのスマートフォン」で測ることを求めている。しかし手持ちのスマートフォンは、学校のルールで校内の回線につなげない。開発者は、校内の回線につながる PC と、携帯の回線につないだスマートフォンの両方で測る予定（2026-11-17）。スマートフォンは、iOS と Android の両方を用意できるかわからないので後に回す。要件どおりには測れないので、要件を決めた人と相談が要る。あわせて、利用者が実際に予約するときにどの回線を使うかも確かめる。
 - **まだ確かめていないこと**：長い休みの後の最初のリクエストで、たまった自動の変化をまとめて反映する重さ（本物のコードができてから測る。DO の中なら10msではなく30秒の制限。OPN-1 の24時間の例外に収まるかも、ここで確かめる）、1日の上限を超えて止まっている間も静的ファイルが配られるか（FUT-1）。DO の1日の上限（リクエスト10万回、稼働時間 13,000 GB-s）は logging.md 5 の表に足した。
 - **FUT-3 の控えの置き場所**：DO の外に置く場所が決まっていない。公開前に決める（platform-selection.md の FUT-3 の行）。30日に戻せる機能が無料プランで使えるかは、まだ確かめていない。
-- **実測用のコード `spike/`**：Git の対象外で、この PC にだけある。wrangler は `spike/` の中に入れた（`spike/package.json`）。ログインは `npx wrangler login`（PC のアカウントに残っている）。2026-11-17 に、DO の中の PBKDF2（`/do-pbkdf2?iter=&rep=&bcw=&wait=`）と `idle.js` を足した。実測は終わったので、Worker は `npx wrangler delete` で消してよい（開発者が決める）。
+- **実測用のコード `spike/`**：Git の対象外で、この PC にだけある。wrangler は `spike/` の中に入れた（`spike/package.json`）。ログインは `npx wrangler login`（PC のアカウントに残っている）。2026-11-17 に、DO の中の PBKDF2（`/do-pbkdf2?iter=&rep=&bcw=&wait=`）と `idle.js` を足した。2026-11-19 に `/schema-check`（SQLite の機能）と `/headers`（台帳へのヘッダと本文の受け渡し）を足し、送り直した。実測は終わったので、Worker は `npx wrangler delete` で消してよい（開発者が決める）。
 
 ## 未解決の質問・確認事項
 
