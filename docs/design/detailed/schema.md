@@ -230,7 +230,7 @@ CREATE INDEX events_user_at ON events (user_id, at);
 | `reservation_status` | 状態の変化（利用開始、取消、無断不使用、終了、管理者による取消・終了） | 予約・機器・利用者 | `from`、`to`、`cause`（管理者による取消・終了のとき）、書き換えた時刻（前倒しの利用開始は `start_at`、利用終了・管理者による終了は `end_at` に、それぞれ `{before, after}`。書き換えないときは入れない。api.md 8.34・8.35） |
 | `reservation_time_changed` | 時間帯の変更（RSV-9, RSV-10。RSV-15 の前倒しは `reservation_status` に入れる。logging.md 2） | 予約・機器・利用者 | `before`・`after` に、それぞれ `start_at`・`end_at`（片方だけ変えても両方。時間帯の変更は api.md 8.32） |
 | `user_created` | 利用者を作った | 利用者 | `name`、`cohort` |
-| `user_renamed` | 名前・期生を置き換えた（USR-7） | 利用者 | `before`・`after` に、それぞれ `name`・`cohort`（片方だけ変わっても両方。api.md 8.15） |
+| `user_renamed` | 名前・期生を置き換えた（USR-7） | 利用者 | `before`・`after` に、それぞれ `name`・`cohort`（片方だけ変わっても両方。api.md 8.15.1） |
 | `device_created`・`device_renamed`・`device_deleted` | 機器の追加・名前の変更・削除 | 機器 | 追加・削除は `name`。名前の変更は `before`・`after` に、それぞれ `name`（api.md 8.19〜8.21） |
 | `setting_changed` | 数値の変更（RSV-25） | なし | `key`、`before`・`after` に前後の `value`、`effective_at`（同じ値への変更は書かない。api.md 8.42） |
 | `admin_created`・`admin_deleted`・`admin_password_reset` | 管理者のアカウント | 管理者 | `login_id`、`display_name`。パスワードは入れない |

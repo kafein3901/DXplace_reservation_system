@@ -1,7 +1,7 @@
 # ルールの判定
 
 - 状態：決定（2026-11-19 の詳細設計のレビューの後）
-- 日付：2026-11-19
+- 日付：2026-11-19（2026-11-20 に USR-3・USR-7 の修正に合わせて 6.5 を直した）
 - 関係する要件：USR-2〜USR-7, ADM-2, ADM-3, TIM-1〜TIM-4, TIM-6〜TIM-8, RSV-1〜RSV-27, VIW-1, VIW-2, MNG-1〜MNG-3, SEC-3, NFR-3, NFR-4, FUT-5
 - 前提：[architecture.md](../basic/architecture.md)（手順 1〜7、`rules/` は純粋な関数）、[time-and-concurrency.md](../basic/time-and-concurrency.md)（`nowMin`、自動の変化の反映）、[domain-model.md](../basic/domain-model.md)（状態の移り方、数値の履歴）、[screens-and-api.md](../basic/screens-and-api.md) 7（コードは1つだけ返す）
 
@@ -145,8 +145,8 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 管理者の削除 | ADM-2 | 済（6.1。api.md 8.47） |
 | 数値の変更 | RSV-25, RSV-26 | 済（6.17。api.md 8.41〜8.43） |
 | 管理者の入力の検証（`lib/`） | ADM-2, USR-5, SEC-3 | 済（6.2） |
-| 利用者の入力の検証（`lib/`） | USR-3〜USR-6 | 済（名前 USR-5 と全角・大小のそろえ方は 6.2、生徒か教員か・学籍番号・期生は 6.4） |
-| 利用者の入力（作る・置き換える・変わらない） | USR-7 | 済（6.5。api.md 8.15） |
+| 登録・ログイン・名前と期生の変更の入力の検証（`lib/`） | USR-3〜USR-6 | 済（名前 USR-5 と全角・大小のそろえ方は 6.2、生徒か教員か・学籍番号・期生は 6.4） |
+| 登録・ログイン・名前と期生の変更（いるか、置き換えるか） | USR-3, USR-7 | 済（6.5。api.md 8.15。2026-11-20 に USR-3・USR-7 の修正に合わせて分けた） |
 | 管理者の認証・管理者の証明・試行の上限 | ADM-2, SEC-3 | 済（6.3。試行の上限は利用の開始・保守用の API も同じ関数を使う） |
 | 利用の開始・利用者の証明 | USR-2, ADM-3, SEC-3 | 済（6.3 の `checkSharedInfo`・`checkUserSession`・`userCookie`。api.md 8.11〜8.13） |
 | 共有された情報の設定・変更 | ADM-3 | 済（判定なし。管理者の証明（6.3 の `checkAdminSession`）を通れば必ず受け付けるので、関数を作らない。値は 6.3 の `newToken`。api.md 8.9） |
@@ -254,7 +254,7 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 
 ### 6.4 利用者の入力の検証（`src/lib/`。USR-3〜USR-6）
 
-1.2 の形で返す。利用者の入力（api.md 8.15）と、利用者の操作の API の識別の組（api.md 8.16）で使う。名前は 6.2 の `validateName` を使う。
+1.2 の形で返す。登録・ログイン・名前と期生の変更（api.md 8.15）と、利用者の操作の API の識別の組（api.md 8.16）で使う。名前は 6.2 の `validateName` を使う。
 
 | 関数 | 手順 | `value` | コード |
 | --- | --- | --- | --- |
@@ -278,28 +278,37 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | USR-4（`validateStudentId`、教員） | 1文字・64文字、数字だけ、`Tanaka.T` → `tanaka.t`、`ａ－ｂ．ｃ＿ｄ` → `a-b.c_d` | 空、65文字、空白・`@`・ひらがな・長音符 `ー` を含む |
 | USR-6（`validateCohort`） | 生徒の 1、大きな整数（`Number.MAX_SAFE_INTEGER`）。教員はどんな値（ない、文字列、0）でも `null` | 生徒で、ない、`null`、0、−1、1.5、`"1"`、`Number.MAX_SAFE_INTEGER + 1` |
 
-### 6.5 利用者の入力（`src/rules/users.js`。USR-7）
+### 6.5 登録・ログイン・名前と期生の変更（`src/rules/users.js`。USR-3, USR-7）
+
+2026-11-20 に要件の修正（USR-3・USR-7）に合わせて、それまでの `decideUserInput`（作る・置き換える・変わらない）を次の3つに分けた。
 
 | 関数 | 引数 | 戻り値 |
 | --- | --- | --- |
-| `decideUserInput(existing, input)` | `existing`：store が `(role, そろえた学籍番号)` で引いた `users` の行（なければ `null`）。`input`：6.4 と `validateName` を通った後の `{ name, cohort }` | `{ ok: true, action }`。`action` は下の表 |
+| `checkUserRegister(existing)` | `existing`：store が `(role, そろえた学籍番号)` で引いた `users` の行（なければ `null`） | `null` なら `{ ok: true }`。でなければ `RULE_USER_DUPLICATE`（段 8） |
+| `checkUserLogin(existing)` | 同上 | `null` なら `NOT_FOUND_USER`（段 2）。でなければ `{ ok: true }` |
+| `decideUserChange(existing, input)` | `existing`：同上。`input`：6.4 と `validateName` を通った後の `{ name, cohort }` | `null` なら `NOT_FOUND_USER`（段 2）。でなければ `{ ok: true, action }`。`action` は下の表 |
+
+`decideUserChange` の `action`：
 
 | `action` | 条件 |
 | --- | --- |
-| `create` | `existing` が `null` |
 | `rename` | `existing.name` と `input.name`、または `existing.cohort` と `input.cohort` の少なくとも一方が違う |
 | `unchanged` | どちらも同じ |
 
-- **断る場合はない。** それでも関数にするのは、置き換えるかどうかを決めるのは判定であり、`api/` に判定を書かないため（architecture.md 4）。
+- **1行で済む判定も関数にする。** いるかいないかで断るのは判定であり、`api/` に判定を書かないため（architecture.md 4）。理由のコードを決めるのも `rules/` の役目にそろえる。
+- **登録は、すでにいれば名前・期生を比べずに断る**（USR-3「すでにいる利用者は登録できない」。api.md 8.15.2）。
+- **`RULE_USER_DUPLICATE` は段 8。** 保存してある値（ほかの利用者の組）と比べる重複なので、`RULE_ADMIN_ID_DUPLICATE`・`RULE_DEVICE_NAME_DUPLICATE` と同じ段に置く（4）。
 - **名前は前後の空白を除いた後の値を、そのまま比べる。** 全角・半角や Unicode の正規化はしない。表示のための値で、利用者が入れたとおりに置き換えるため（USR-7「それまでと異なれば」）。
 - 期生は数値か `null` で比べる。教員はどちらも `null` なので、名前だけで決まる。
 - 生徒か教員かは識別の組の一部なので、同じ行の中で変わることはない。
 
 テストの観点（ルールの層）：
 
-| ID | 確かめること |
-| --- | --- |
-| USR-7 | `null` なら `create`。名前だけ違う、期生だけ違うときはどちらも `rename`。どちらも同じなら `unchanged`。名前の大文字と小文字の違い、全角と半角の違いも `rename` |
+| ID | 受け付ける | 断る |
+| --- | --- | --- |
+| USR-3（`checkUserRegister`） | `null` | 行がある（`RULE_USER_DUPLICATE`） |
+| USR-3（`checkUserLogin`） | 行がある | `null`（`NOT_FOUND_USER`） |
+| USR-7（`decideUserChange`） | 名前だけ違う、期生だけ違うときはどちらも `rename`。どちらも同じなら `unchanged`。名前の大文字と小文字の違い、全角と半角の違いも `rename` | `null`（`NOT_FOUND_USER`） |
 
 ### 6.6 機器の名前の検証（`src/lib/`。MNG-1）
 

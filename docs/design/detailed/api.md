@@ -1,7 +1,7 @@
 # API
 
 - 状態：決定（2026-11-19 の詳細設計のレビューの後）
-- 日付：2026-11-19
+- 日付：2026-11-19（2026-11-20 に USR-3・USR-7 の修正に合わせて 8.15〜8.17 を直した）
 - 関係する要件：PRE-5, PRE-11, USR-1〜USR-7, ADM-1〜ADM-3, TIM-1〜TIM-7, RSV-2〜RSV-27, VIW-1〜VIW-3, MNG-1〜MNG-4, LOG-1〜LOG-5, SEC-2〜SEC-4, NFR-3, NFR-4, FUT-1, FUT-4
 - 前提：[architecture.md](../basic/architecture.md) 1, 3, 4（Worker は渡すだけ、手順 1〜7）、[screens-and-api.md](../basic/screens-and-api.md) 4〜7（API の一覧、応答の形）、[auth.md](../basic/auth.md) 1, 3, 6, 7（入口の種類、Cookie と Origin、保守用の鍵、試行の制限）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 2, 4（時刻を取る位置、`blockConcurrencyWhile`）、[error-codes.md](error-codes.md)、[schema.md](schema.md) 5（版の適用）
 
@@ -232,7 +232,7 @@ API を変えるときの決まり：
 | `POST /api/admin/login`、`GET /api/admin/me`、`POST /api/admin/logout`、管理者の API に共通の証明の確かめ方 | 管理者の認証（ADM-2） | 済（8.4〜8.8） |
 | `POST /api/admin/shared-info` | 共有された情報の設定・変更（ADM-3） | 済（8.9〜8.10） |
 | `POST /api/session`、`GET /api/session`、利用者の API に共通の証明の確かめ方 | 利用の開始（USR-2） | 済（8.11〜8.14） |
-| `POST /api/me`、利用者の操作の API に共通の利用者の引き方 | 利用者の入力（USR-3〜USR-7, LOG-1） | 済（8.15〜8.17） |
+| `POST /api/me/register`、`POST /api/me/login`、`POST /api/me/change`、利用者の操作の API に共通の利用者の引き方 | 登録・ログイン・名前と期生の変更（USR-3〜USR-7, LOG-1） | 済（8.15〜8.17。2026-11-20 に USR-3・USR-7 の修正に合わせて `POST /api/me` を3つに分けた） |
 | `GET /api/admin/devices`、`POST /api/admin/devices`、`POST /api/admin/devices/{id}/rename`、`…/delete`、`GET /api/devices` | 機器（MNG-1, MNG-2, VIW-1 の機器の一覧） | 済（8.18〜8.23） |
 | `GET /api/devices/{id}/day`、`POST /api/reservations` | 予約状況・確保（VIW-1, VIW-2, RSV-2〜RSV-6） | 済（8.24〜8.26） |
 | `POST /api/walk-ins` | 予約なしの利用（RSV-17, RSV-20） | 済（8.27〜8.28） |
@@ -576,7 +576,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 
 ### 8.12 利用者の API に共通の証明の確かめ方（共3。USR-2, ADM-3）
 
-`GET /api/session` を除く利用者の API（`POST /api/me`、機器の一覧・予約状況、予約の操作）は、すべて次のように確かめる。
+`GET /api/session` を除く利用者の API（登録・ログイン・名前と期生の変更、機器の一覧・予約状況、予約の操作）は、すべて次のように確かめる。
 
 1. 準備（3.3 の 2）：`readCookie(Cookie, '__Host-dxp_user')` で値を取り出す。`isTokenFormat` を通れば、その SHA-256 を求める。通らなければ、Cookie がないものとする（rules.md 6.3）。
 2. 共3：store がハッシュで `user_sessions` の行を引き、あわせて現在の共有された情報の版（`shared_infos` の最も大きい `id`。なければ `null`）を引く。`checkUserSession(行, 現在の版)` で判定する。Cookie がないときは行を `null` として渡す。
@@ -617,7 +617,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | USR-2 | 共有された情報の設定（8.9）で返った値で `POST /api/session` を呼ぶと、`user_sessions` に1行でき（`shared_info_id` は現在の版）、`Set-Cookie` に `__Host-dxp_user`・`HttpOnly`・`Secure`・`SameSite=Strict`・`Path=/`・`Max-Age=34560000` が付く。その Cookie で `GET /api/session` が `active: true` |
 | USR-2 | 有効な Cookie を持ったまま、同じ値・違う値・形の違う値・壊れた本文で `POST` しても成功し、行が増えず、失敗も増えない。`Set-Cookie` は受け取った値と同じ |
 | USR-2 | 共有された情報が未設定の台帳では `AUTH_SHARED_INFO_UNSET`（401）で、`auth_failures` に行ができない |
-| ADM-3 | 共有された情報を設定し直すと、前の版で始めた証明で `GET /api/session` が `active: false, reason: AUTH_REVOKED` になり、利用者の API が `AUTH_REVOKED` になる（利用者の API は、利用者の入力の機能ができてから `POST /api/me` で確かめる。この段では `GET /api/session` と、`checkUserSession` のルールの層のテストで確かめる）。応答に `Set-Cookie` が付かない |
+| ADM-3 | 共有された情報を設定し直すと、前の版で始めた証明で `GET /api/session` が `active: false, reason: AUTH_REVOKED` になり、利用者の API が `AUTH_REVOKED` になる（利用者の API は、登録・ログインの機能ができてから、それらで確かめる。この段では `GET /api/session` と、`checkUserSession` のルールの層のテストで確かめる）。応答に `Set-Cookie` が付かない |
 | ADM-3 | 設定し直した後、前の値で `POST` すると `AUTH_SHARED_INFO_WRONG`、新しい値なら成功して新しい行ができ、前の行は残る。管理者の証明は止まらない（`GET /api/admin/me` が通る） |
 | USR-2 | Cookie がない、形が違う（42文字など）、表にない値は、`GET /api/session` で `active: false, reason: AUTH_REQUIRED`、利用者の API で `AUTH_REQUIRED` |
 | USR-2 | 共3 を通った利用者の API の応答には、同じ値の `Set-Cookie` が付く。共3 で断る応答には付かない |
@@ -630,9 +630,47 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | LOG-4 | 成功しても `events` に行ができない。`auth_failures`・`user_sessions`・`events` のどの列にも、共有された情報の値・証明の値が入っていない（`user_sessions.token_hash` は証明の値の SHA-256） |
 | RSV-21 | 開始時刻＋猶予を過ぎた予約済の予約がある台帳で、利用の開始の成功、有効な証明での `POST`、`active: true` の `GET` を呼ぶと無断不使用になる。失敗と `active: false` では変わらない |
 
-### 8.15 `POST /api/me`（利用者の入力。USR-3〜USR-7, LOG-1）
+### 8.15 登録・ログイン・名前と期生の変更（USR-3〜USR-7, LOG-1）
 
-利用者の入力の画面で決定したときに呼ぶ。利用者を引き、いなければ作り、名前・期生がそれまでと違えば置き換える（screens-and-api.md 4）。名前・期生を置き換えるのはこの API だけ。経路の表（3.3）では、認証の種類は「利用者」、包むかは「包まない」（PBKDF2 がない）。
+利用者として誰かを決める3つの API（screens-and-api.md 4）。2026-11-20 に要件の修正（USR-3・USR-7）に合わせて、それまでの `POST /api/me`（いなければ作り、いれば名前・期生を置き換える）を3つに分けた。`POST /api/me` は残さない。
+
+#### 8.15.1 3つに共通のこと
+
+- 経路の表（3.3）では、3つとも認証の種類は「利用者」、包むかは「包まない」（PBKDF2 がない）。
+- 処理の形は3つとも同じ：準備（本文を読む。利用者の Cookie の値のハッシュを求める。8.12 の 1）→ `clock()` → 共2（`Origin`）→ 共3（8.12 の 2）→ 共4 → 段 1 → `transactionSync` の中で、自動の変化を反映し（rules.md 5）、store が `(role, そろえた学籍番号)` で `users` の行を引き（なければ `null`）、rules.md 6.5 の関数で判定して書く → 成功を返す（`Set-Cookie` で利用者の Cookie の期限を延ばす。8.12）。
+- **段 1 で断るときは何も書かない。** 自動の変化も反映しない（8.1 と同じ。応答に予約の情報を含まず、次の要求で反映されるので RSV-21 に反しない）。名前の誤りで断った要求で、期生だけが置き換わることもない。
+- **段 2・段 8 で断るとき（`NOT_FOUND_USER`・`RULE_USER_DUPLICATE`）は、自動の変化だけを反映する。** ほかの API の段 2 以降の断り方と同じ（rules.md 4。反映は判定の前）。
+- **名前・期生を受け取るのは登録と変更だけ。** ログインは送られても読まない（知らない項目として無視する。2）。名前・期生を置き換えるのは変更だけ（USR-7、screens-and-api.md「要件の読み方」）。
+- **ほぼ同時の操作（RSV-23）。** 共2 の後から書き込みの終わりまでに `await` がないので、包まなくても割り込まれない。`users` の `UNIQUE (role, student_id)`（schema.md 2.1）は最後の守り。
+- **端末ごとに利用者を覚えない（USR-3）。** 証明の行と利用者を結びつけない。画面は応答を変数に持つだけ。
+
+応答の `data`（3つとも同じ形）：
+
+| 項目 | 内容 |
+| --- | --- |
+| `id` | 利用者の内部の番号（`users.id`）。v0.1.0 の画面は使わない（screens-and-api.md 5） |
+| `role` | 生徒か教員か |
+| `student_id` | そろえた後の学籍番号。画面はこの値を以後の操作の識別の組に使う |
+| `name` | 現在の名前（前後の空白を除いた値）。変更では置き換えた後の値 |
+| `cohort` | 現在の期生。教員は `null` |
+
+- **ログインの応答にも名前・期生を入れる**（2026-11-20 に開発者が決定）。画面が変更の欄に今の値を入れておくためと、上の帯に操作する人を出すため（screens.md 3.1）。名前・期生はどのみち予約状況で全員に見える（VIW-1）ので、学籍番号を知っている人に新しく漏れるものはない。3つの応答を同じ形にすると、画面は利用者の変数を1つの書き方で作れる。
+
+記録（`events`。LOG-1, USR-7）：
+
+| API | 場合 | `kind` | `detail` |
+| --- | --- | --- | --- |
+| 登録 | 作った | `user_created` | `{"name": …, "cohort": …}` |
+| 変更 | 置き換えた（`rename`） | `user_renamed` | `{"before": {"name": …, "cohort": …}, "after": {"name": …, "cohort": …}}` |
+
+- どちらも `at` は `clock()` の時刻（切り捨てない。TIM-5）、`actor_kind = 'user'`、`user_id` はその利用者の番号、ほかの番号の列は `NULL`。
+- `user_renamed` では、片方だけが変わったときも名前と期生の両方の前後を入れる。1件だけ見れば、その時点の名前・期生がわかるようにするため。
+- 学籍番号は `detail` に入れない（`user_id` から `users` を引けばわかる）。
+- ログイン、変更の `unchanged`、断った要求では書かない（反映した自動の変化は記録する。logging.md 2）。
+
+#### 8.15.2 `POST /api/me/register`（登録。USR-3〜USR-7）
+
+登録の画面で決定したときに呼ぶ。利用者がいなければ作る。いれば断り、名前・期生には触れない。
 
 要求の本文：
 
@@ -643,37 +681,16 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | `name` | 文字列 | できない | 名前（USR-5）。前後の空白を除いて保存する |
 | `cohort` | 数値 | 生徒はできない。教員は読まない | 期生（USR-6）。型も段 1 で確かめる（rules.md 6.4） |
 
-処理：
+処理（8.15.1 の形のうち、この API のもの）：
 
-1. 準備：本文を読む。利用者の Cookie の値のハッシュを求める（8.12 の 1）。
-2. `clock()` で現在時刻を取る。
-3. 共2（`Origin`）→ 共3（8.12 の 2）→ 共4（本文が JSON のオブジェクトで、`role`・`student_id`・`name` が文字列であること。`cohort` の型はここでは見ない）。
-4. 段 1：`validateRole` → `validateStudentId` → `validateName` → `validateCohort` の順に確かめる（rules.md 6.2, 6.4）。画面の入力欄の並びと同じにする。
-5. `transactionSync` の中で：
-   1. 自動の変化を反映する（rules.md 5）。
-   2. store が `(role, そろえた学籍番号)` で `users` の行を引く（なければ `null`）。
-   3. `decideUserInput(行, { name, cohort })`（rules.md 6.5）の `action` に従って書く。
-      - `create`：`users` に1行足す（`created_at` は 2 の時刻）。記録 `user_created` を書く。
-      - `rename`：その行の `name`・`cohort` を上書きする。記録 `user_renamed` を書く。
-      - `unchanged`：何も書かない。
-6. 成功を返す（`Set-Cookie` で利用者の Cookie の期限を延ばす。8.12）。
+1. 共4：本文が JSON のオブジェクトで、`role`・`student_id`・`name` が文字列であること。`cohort` の型はここでは見ない。
+2. 段 1：`validateRole` → `validateStudentId` → `validateName` → `validateCohort` の順に確かめる（rules.md 6.2, 6.4）。画面の入力欄の並びと同じにする。
+3. `transactionSync` の中で、行を引いて `checkUserRegister(行)`（rules.md 6.5）で判定する。
+   - 断ったら `RULE_USER_DUPLICATE`（段 8）を返す。行は変えない。
+   - 通ったら `users` に1行足し（`created_at` は `clock()` の時刻）、記録 `user_created` を書く。応答は足した行。
 
-決めたことと理由：
-
-- **段 1 で断るときは何も書かない。** 自動の変化も反映しない（8.1 と同じ。応答に予約の情報を含まず、次の要求で反映されるので RSV-21 に反しない）。名前の誤りで断った要求で、期生だけが置き換わることもない。
-- **ほぼ同時の入力（RSV-23）。** 3 の後から 5 の終わりまでに `await` がないので、包まなくても割り込まれない。同じ識別の組が2つ届くと、先の要求が `create`、後の要求は先の行を見て `rename` か `unchanged` になる。`users` の `UNIQUE (role, student_id)`（schema.md 2.1）は最後の守り。
-- **他の人の名前を書き換えうる。** 学籍番号を打ち間違えると、確かめずに他の利用者の名前・期生を置き換える。要件が承知のうえとしている制約（USR-7）で、置き換える前の確認は作らない（10章）。記録から前の値をたどれる。
-- **端末ごとに利用者を覚えない（USR-3）。** 証明の行と利用者を結びつけない。画面は応答を変数に持つだけ。
-
-応答の `data`：
-
-| 項目 | 内容 |
-| --- | --- |
-| `id` | 利用者の内部の番号（`users.id`）。v0.1.0 の画面は使わない（screens-and-api.md 5） |
-| `role` | 生徒か教員か |
-| `student_id` | そろえた後の学籍番号。画面はこの値を以後の操作の識別の組に使う |
-| `name` | 現在の名前（前後の空白を除いた値） |
-| `cohort` | 現在の期生。教員は `null` |
+- **すでにいる利用者は、送られた名前・期生が同じでも違っても断る**（USR-3「すでにいる利用者は登録できない」）。同じなら成功にする案は採らない。成功と同じ文を出すと、学籍番号が他の利用者と同じことに気づけない。断った後は、画面がログインへ案内する（screens.md 3.3）。
+- **他の利用者の組を登録しようとしたことは見分けない。** 識別の組は認証ではない（PRE-1）。
 
 返しうるコード（確かめる順）：
 
@@ -687,57 +704,126 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | 6 | `INPUT_STUDENT_ID` | 1 |
 | 7 | `INPUT_NAME` | 1 |
 | 8 | `INPUT_COHORT` | 1 |
+| 9 | `RULE_USER_DUPLICATE` | 8 |
 
-記録（`events`。LOG-1, USR-7）：
+#### 8.15.3 `POST /api/me/login`（ログイン。USR-3, USR-4）
 
-| 場合 | `kind` | `detail` |
+ログインの画面で決定したときに呼ぶ。利用者を引いて返す。利用者の表には何も書かず、記録もしない（screens-and-api.md 4）。
+
+要求の本文：
+
+| 項目 | 型 | 省略 | 内容 |
+| --- | --- | --- | --- |
+| `role` | 文字列 | できない | 8.15.2 と同じ |
+| `student_id` | 文字列 | できない | 8.15.2 と同じ |
+
+処理（8.15.1 の形のうち、この API のもの）：
+
+1. 共4：本文が JSON のオブジェクトで、`role`・`student_id` が文字列であること。
+2. 段 1：`validateRole` → `validateStudentId`（rules.md 6.4）。
+3. `transactionSync` の中で、行を引いて `checkUserLogin(行)`（rules.md 6.5）で判定する。
+   - 断ったら `NOT_FOUND_USER`（段 2）を返す（USR-3「登録していない利用者はログインできない」）。
+   - 通ったら、その行を応答にする。
+
+- **`transactionSync` の中で行う。** 書くのは自動の変化だけだが、反映と引くことを1つの区間にまとめるのは、ほかの API と同じ（rules.md 5）。
+- **ログインし直せば別の人に切り替えられる（USR-3）。** 台帳は前にだれでログインしていたかを知らない。画面が利用者の変数を置き換える。
+- **他の利用者の学籍番号でもログインできる。** USR-7 が承知のうえとしている制約（本人確認がない）。
+
+返しうるコード（確かめる順）：
+
+| 順 | コード | 段 |
 | --- | --- | --- |
-| `create` | `user_created` | `{"name": …, "cohort": …}` |
-| `rename` | `user_renamed` | `{"before": {"name": …, "cohort": …}, "after": {"name": …, "cohort": …}}` |
+| 1 | `NOT_FOUND_API` | 共1 |
+| 2 | `AUTH_ORIGIN` | 共2 |
+| 3 | `AUTH_REQUIRED`・`AUTH_REVOKED` | 共3 |
+| 4 | `INPUT_BODY` | 共4 |
+| 5 | `INPUT_ROLE` | 1 |
+| 6 | `INPUT_STUDENT_ID` | 1 |
+| 7 | `NOT_FOUND_USER` | 2 |
 
-- どちらも `at` は 2 の時刻（切り捨てない。TIM-5）、`actor_kind = 'user'`、`user_id` はその利用者の番号、ほかの番号の列は `NULL`。
-- `rename` では、片方だけが変わったときも名前と期生の両方の前後を入れる。1件だけ見れば、その時点の名前・期生がわかるようにするため。
-- 学籍番号は `detail` に入れない（`user_id` から `users` を引けばわかる）。
-- `unchanged` では書かない。
+#### 8.15.4 `POST /api/me/change`（名前・期生の変更。USR-5〜USR-7）
+
+名前・期生の変更の画面で決定したときに呼ぶ。名前・期生がそれまでと違えば置き換える。名前・期生を置き換えるのはこの API だけ。
+
+要求の本文：
+
+| 項目 | 型 | 省略 | 内容 |
+| --- | --- | --- | --- |
+| `role` | 文字列 | できない | ログインしている利用者の生徒か教員か。画面は利用者の変数の値を送る |
+| `student_id` | 文字列 | できない | ログインしている利用者の学籍番号。画面は利用者の変数の値（そろえた値）を送る。全角・大文字のままでも、そろえて引く |
+| `name` | 文字列 | できない | 新しい名前（USR-5）。前後の空白を除いて保存する |
+| `cohort` | 数値 | 生徒はできない。教員は読まない | 新しい期生（USR-6） |
+
+処理（8.15.1 の形のうち、この API のもの）：
+
+1. 共4：本文が JSON のオブジェクトで、`role`・`student_id`・`name` が文字列であること。`cohort` の型はここでは見ない。
+2. 段 1：`validateRole` → `validateStudentId` → `validateName` → `validateCohort`（8.15.2 と同じ順）。
+3. `transactionSync` の中で、行を引いて `decideUserChange(行, { name, cohort })`（rules.md 6.5）で判定する。
+   - 断ったら `NOT_FOUND_USER`（段 2）を返す。
+   - `rename`：その行の `name`・`cohort` を上書きし、記録 `user_renamed` を書く。応答は上書きした後の行。
+   - `unchanged`：何も書かない。応答はその行。
+
+- **識別の組は、ログインしている利用者のものを送る。** 画面にほかの利用者を選ぶ欄を置かないことで、「自分の分だけを変更できる」（USR-7）を満たす（screens-and-api.md 4）。台帳は、送られた組がその端末でログインした利用者のものかを見分けない（端末ごとに覚えないため。8.15.1）。
+- **他の人の名前を書き換えうる。** 他の利用者の学籍番号でログインすれば、その利用者の名前・期生を置き換えられる。要件が承知のうえとしている制約（USR-7）で、置き換える前の確認は作らない（10章）。記録から前の値をたどれる。
+- **生徒か教員かは変えられない。** 識別の組の一部なので（USR-4）、変えるときは別の利用者として登録する。
+
+返しうるコード（確かめる順）：
+
+| 順 | コード | 段 |
+| --- | --- | --- |
+| 1 | `NOT_FOUND_API` | 共1 |
+| 2 | `AUTH_ORIGIN` | 共2 |
+| 3 | `AUTH_REQUIRED`・`AUTH_REVOKED` | 共3 |
+| 4 | `INPUT_BODY` | 共4 |
+| 5 | `INPUT_ROLE` | 1 |
+| 6 | `INPUT_STUDENT_ID` | 1 |
+| 7 | `INPUT_NAME` | 1 |
+| 8 | `INPUT_COHORT` | 1 |
+| 9 | `NOT_FOUND_USER` | 2 |
 
 ### 8.16 利用者の操作の API に共通の利用者の引き方（USR-3, USR-4, USR-7）
 
-予約の確保・予約なしの利用・自分の予約・取消・時間帯の変更・利用開始・利用終了の API（`POST /api/me` と予約状況・機器の一覧を除く利用者の API）は、すべて次のように利用者を引く。
+予約の確保・予約なしの利用・自分の予約・取消・時間帯の変更・利用開始・利用終了の API（登録・ログイン・名前と期生の変更（8.15）と予約状況・機器の一覧を除く利用者の API）は、すべて次のように利用者を引く。
 
 要求の本文に、識別の組を必ず入れる。
 
 | 項目 | 型 | 省略 | 内容 |
 | --- | --- | --- | --- |
-| `role` | 文字列 | できない | `POST /api/me` と同じ |
-| `student_id` | 文字列 | できない | 画面は `POST /api/me` の応答の値を送る。全角・大文字のままでも、そろえて引く |
+| `role` | 文字列 | できない | 8.15.2 と同じ |
+| `student_id` | 文字列 | できない | 画面は登録・ログイン・変更の応答の値を送る。全角・大文字のままでも、そろえて引く |
 
 1. 共4 で、`role`・`student_id` が文字列であることを確かめる。
 2. 段 1 の最初に `validateRole` → `validateStudentId`（rules.md 6.4）を確かめる。その API のほかの項目（時刻など）は、その後に確かめる。
 3. store が `(role, そろえた学籍番号)` で `users` の行を引き（なければ `null`）、操作ごとの関数に渡す。操作ごとの関数は段 2 の最初で、`null` なら `NOT_FOUND_USER` を返す（rules.md 2）。予約が本人のものかどうかは、その後に確かめる。
 
-- **名前・期生は読まない。** 送られても、知らない項目として無視する（2）。入力や変更を伴わない操作では置き換えない（USR-7、screens-and-api.md 4）。
+- **名前・期生は読まない。** 送られても、知らない項目として無視する（2）。置き換えるのは名前・期生の変更だけ（USR-7、screens-and-api.md 4）。
 - **記録の `user_id` は、ここで引いた利用者の番号にする。** 予約の出来事では、予約の `user_id` と同じになる（本人の予約しか操作できないため。schema.md 2.9）。
 - 操作ごとの関数での確かめ方は、それぞれの機能の設計で rules.md 6 に書く。
 
-### 8.17 台帳の層のテストの観点（利用者の入力）
+### 8.17 台帳の層のテストの観点（登録・ログイン・名前と期生の変更）
 
 | ID | 確かめること |
 | --- | --- |
-| USR-3 | 生徒で呼ぶと `users` に1行でき、応答の `data` が `id`・`role`・そろえた `student_id`・前後の空白を除いた `name`・`cohort` になる。教員では `cohort` が `null` |
-| USR-4 | `１２３４５６７８` で作った後に `12345678` で呼ぶと、同じ行を引く（行が増えない）。教員の `Tanaka.T` と `tanaka.t` も同じ |
-| USR-4 | `00000001` は受け付け、`0000001`（7桁）は `INPUT_STUDENT_ID`。生徒と教員で同じ `12345678` を入れると別の行になる。生徒で英字を含む値は `INPUT_STUDENT_ID` |
-| USR-5 | 名前が空白だけ、31文字、改行入りなら `INPUT_NAME` で、表が変わらない |
-| USR-6 | 生徒で `cohort` がない、0、1.5、`"1"` なら `INPUT_COHORT`。教員で `cohort` に 5 や `"abc"` を送っても受け付け、`NULL` で保存される |
-| USR-7 | 同じ値で2回呼ぶと、行も `events` も増えない。名前だけ・期生だけを変えると行が上書きされ、`user_renamed` が1行でき、`detail` の `before`・`after` が前後の値になる。作ったときは `user_created` が1行 |
-| USR-7 | 段 1 で断った要求（名前は正しく期生が誤りなど）では、名前も置き換わらない |
-| LOG-1 | 記録の `actor_kind` は `user`、`user_id` は対象の利用者、`at` は秒を切り捨てていない時刻。`detail` に学籍番号が入っていない |
-| ADM-3 | 共有された情報を設定し直すと、前の版で始めた証明で `POST /api/me` が `AUTH_REVOKED` になる（8.14 から回したもの）。`Set-Cookie` が付かず、表が変わらない |
+| USR-3 | 登録：生徒で呼ぶと `users` に1行でき、応答の `data` が `id`・`role`・そろえた `student_id`・前後の空白を除いた `name`・`cohort` になる。教員では `cohort` が `null` |
+| USR-3 | 登録：すでにいる組で呼ぶと、名前・期生が同じでも違っても `RULE_USER_DUPLICATE`（409）で、行も `events` も変わらない |
+| USR-3 | ログイン：登録した組で呼ぶと、応答の `data` が登録の応答と同じ値になる。`users` も `events` も変わらない。本文に `name`・`cohort` を入れても読まず、行が変わらない |
+| USR-3 | ログイン：登録していない組では `NOT_FOUND_USER`（404）で、`users` も `events` も変わらない |
+| USR-4 | `１２３４５６７８` で登録した後に `12345678` で登録すると `RULE_USER_DUPLICATE`、ログイン・変更は同じ行を引く。教員の `Tanaka.T` と `tanaka.t` も同じ |
+| USR-4 | `00000001` は受け付け、`0000001`（7桁）は3つとも `INPUT_STUDENT_ID`。生徒と教員で同じ `12345678` を登録すると別の行になる。生徒で英字を含む値は `INPUT_STUDENT_ID` |
+| USR-5 | 登録・変更で、名前が空白だけ、31文字、改行入りなら `INPUT_NAME` で、表が変わらない |
+| USR-6 | 登録・変更で、生徒で `cohort` がない、0、1.5、`"1"` なら `INPUT_COHORT`。教員で `cohort` に 5 や `"abc"` を送っても受け付け、`NULL` で保存される |
+| USR-7 | 変更：同じ値で呼ぶと、行も `events` も変わらず、応答はその行。名前だけ・期生だけを変えると行が上書きされ、`user_renamed` が1行でき、`detail` の `before`・`after` が前後の値になり、応答は新しい値 |
+| USR-7 | 変更：登録していない組では `NOT_FOUND_USER` で、行ができない |
+| USR-7 | 変更：段 1 で断った要求（名前は正しく期生が誤りなど）では、名前も置き換わらない |
+| LOG-1 | 登録の記録は `user_created`、変更の記録は `user_renamed`。どちらも `actor_kind` は `user`、`user_id` は対象の利用者、`at` は秒を切り捨てていない時刻。`detail` に学籍番号が入っていない |
+| ADM-3 | 共有された情報を設定し直すと、前の版で始めた証明で3つとも `AUTH_REVOKED` になる（8.14 から回したもの）。`Set-Cookie` が付かず、表が変わらない |
 | USR-2 | Cookie がないと `AUTH_REQUIRED`。本文が壊れていて Cookie もないと `AUTH_REQUIRED`（認証が先）。`Origin` がないと `AUTH_ORIGIN` |
-| USR-2 | 段 1 で断る応答（`INPUT_*`）にも、受け取った値と同じ `Set-Cookie` が付く |
-| RSV-23 | 同じ識別の組を違う名前で2つ同時に送ると、行は1つで、`user_created` と `user_renamed` が1行ずつでき、残る名前は後に処理された要求の値 |
-| RSV-21 | 開始時刻＋猶予を過ぎた予約済の予約がある台帳で、成功（`unchanged` を含む）すると無断不使用になる。段 1 で断ったときは変わらない |
+| USR-2 | 段 1・段 2・段 8 で断る応答（`INPUT_*`・`NOT_FOUND_USER`・`RULE_USER_DUPLICATE`）にも、受け取った値と同じ `Set-Cookie` が付く |
+| RSV-23 | 同じ組で2つ同時に登録すると、行は1つで、片方が成功し、もう片方は `RULE_USER_DUPLICATE`。`user_created` は1行 |
+| RSV-23 | 同じ組で違う名前の変更を2つ同時に送ると、`user_renamed` が2行でき、残る名前は後に処理された要求の値 |
+| RSV-21 | 開始時刻＋猶予を過ぎた予約済の予約がある台帳で、登録・ログイン・変更（`unchanged` を含む）が成功すると無断不使用になる。`NOT_FOUND_USER`・`RULE_USER_DUPLICATE` で断ったときもなる。段 1 で断ったときは変わらない |
 
-`NOT_FOUND_USER`（8.16）は、それを返す最初の API（予約の確保）のテストで確かめる（8.26）。
+8.16 の共通の引き方での `NOT_FOUND_USER` は、それを使う最初の API（予約の確保）のテストで確かめる（8.26）。ログイン・変更の `NOT_FOUND_USER` は上の表で確かめる。
 
 ### 8.18 `GET /api/admin/devices`（機器の一覧。MNG-1）
 
@@ -781,7 +867,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
    4. `devices` に1行足し（`created_at` は 2 の時刻、`deleted_at` は `NULL`）、記録を書く。
 6. 成功を返す（`Set-Cookie` で期限を延ばす）。
 
-- **段 1 で断るときは何も書かない。** 自動の変化も反映しない（8.15 と同じ）。
+- **段 1 で断るときは何も書かない。** 自動の変化も反映しない（8.15.1 と同じ）。
 - **段 2・段 8 で断るときも、反映した自動の変化は残す。** 反映は操作と関係なく正しい変化で、取り消す理由がない。断るのは戻り値で行い、例外を投げないので `transactionSync` は取り消されない（rules.md 1.1）。8.20・8.21 も同じ。
 - **ほぼ同時の追加（RSV-23）。** 3 の後から 5 の終わりまでに `await` がないので、同じ名前を2つ同時に送ると、後の要求は先の行を見て `RULE_DEVICE_NAME_DUPLICATE` になる。`devices_name_current`（schema.md 2.2）は最後の守りで、判定とコードは rules が持つ。
 
@@ -940,7 +1026,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 - **状態は SQL で絞らない。** VIW-1 の「表示する状態」は判定なので rules に置く（rules.md 3）。その日にかかる予約だけなので、取消などを含めても NFR-3 の規模で小さい（1日20件、10倍でも200件）。先の予約も `end_at >= dayStart` に入るが、その機器の未来の予約だけで、履歴はたどらない。
 - **応答の項目は `api/` が選ぶ（VIW-2）。** 下の表の項目だけを入れ、`users.student_id`・`role` は SQL でも引かない。
 - **名前・期生は現在の値（USR-7）。** 予約は利用者の番号だけを持ち、表示のたびに `users` から引く（domain-model.md）。
-- **段 1 で断るときは何も書かない。** 自動の変化も反映しない（8.15 と同じ）。
+- **段 1 で断るときは何も書かない。** 自動の変化も反映しない（8.15.1 と同じ）。
 - **削除した機器は `NOT_FOUND_DEVICE`。** 8.22 の一覧に出ない機器で、画面は一覧を読み直す（screens.md）。削除の時点の予約は、記録と予約の行に残る（LOG-2）。
 
 応答の `data`：
@@ -997,7 +1083,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 決めたことと理由：
 
 - **`device_id` の形は共4 で確かめる。** パスの `{id}` は形が違えば `NOT_FOUND_API` にする（2）が、本文の項目は型の誤りとして `INPUT_BODY` にする（error-codes.md 3.1）。小数・0・負の数・文字列もここで断るので、store は整数で引くだけでよい。
-- **段 1 で断るときは何も書かない。** 自動の変化も反映しない（8.15 と同じ）。
+- **段 1 で断るときは何も書かない。** 自動の変化も反映しない（8.15.1 と同じ）。
 - **ほぼ同時の確保（RSV-3, RSV-4, RSV-23）。** 3 の後から 5 の終わりまでに `await` がないので、包まなくても割り込まれない。同じ機器の重なる時間帯を2つ同時に送ると、後の要求は先の行を見て `RULE_OVERLAP` になる。同じ人が件数の上限 − 1 の状態で別の機器を2つ同時に送ると、後の要求は `RULE_COUNT` になる。予約の表には重なりを禁じる制約がない（domain-model.md 4）ので、守りはこの判定だけ。
 - **機器の削除と同時の確保（RSV-23）。** 削除の後に処理されれば `NOT_FOUND_DEVICE`、前なら削除で `admin_cancelled` になる（8.21）。
 - **自動の変化が先（RSV-22）。** 終了時刻がちょうど `nowMin` の利用中は 5.1 で終了になり、その時刻から始まる確保を妨げない。猶予を過ぎた予約済は無断不使用になり、件数にも重なりにも入らない。
@@ -1049,7 +1135,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | RSV-22 | 終了時刻がちょうど `nowMin` の利用中の予約がある機器で、その時刻から始まる確保が成功し、先の予約は終了（記録は自動・終了時刻）。開始時刻＋猶予がちょうど `nowMin` の予約済は無断不使用になり、件数に数えず、その時間帯も確保できる |
 | RSV-21 | 段 2 以降で断った確保と予約状況でも、反映した自動の変化が残る。段 1 で断ったときは変わらない |
 | VIW-1 | 予約状況に、予約済・利用中・終了・管理者による終了が開始時刻の順で出て、取消・無断不使用・管理者による取消は出ない。終了は利用した時間帯の終わりで出る。日をまたぐ予約は両方の日に出る。長さ0の終了は開始時刻を含む日にだけ出る。0:00 に終わる予約は次の日に出ない |
-| VIW-2 | 予約状況の応答の本文（JSON の文字列）に、どの利用者の学籍番号も含まれない。`name`・`cohort` は現在の値（`POST /api/me` で置き換えた後は新しい名前） |
+| VIW-2 | 予約状況の応答の本文（JSON の文字列）に、どの利用者の学籍番号も含まれない。`name`・`cohort` は現在の値（`POST /api/me/change` で置き換えた後は新しい名前） |
 | VIW-1 | `now` が `formatDateTime(nowMin)`。`date` がない、`2026-11-31` なら `INPUT_DATE`（400）。ない機器・削除した機器は `NOT_FOUND_DEVICE` |
 | VIW-1 | 予約状況の SQL を `EXPLAIN QUERY PLAN` で見ると `reservations_device_end` を使う（schema.md 3） |
 | USR-2 | 予約状況・確保は、Cookie がないと `AUTH_REQUIRED`。管理者の Cookie だけでも `AUTH_REQUIRED`（ADM-1）。確保で `Origin` がないと `AUTH_ORIGIN`。予約状況（`GET`）は `Origin` を確かめない |
@@ -1661,7 +1747,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 1. 準備：本文を読む。管理者の Cookie の値のハッシュを求める（8.5 の 1）。
 2. `clock()` で現在時刻 `now` を取り、`nowMin = floorMinute(now)`。
 3. 共2（`Origin`）→ 共3（8.5 の 2）→ 共4（本文が JSON のオブジェクトで、`key` が文字列で `SETTING_KEYS` のどれかであること、`value` が数値であること）。
-4. 段 1：`validateSettingValue(key, value)`（rules.md 6.17）。断ったら何も書かず、自動の変化も反映しない（8.15 と同じ）。
+4. 段 1：`validateSettingValue(key, value)`（rules.md 6.17）。断ったら何も書かず、自動の変化も反映しない（8.15.1 と同じ）。
 5. `transactionSync` の中で：
    1. 自動の変化を反映する（rules.md 5）。
    2. store が数値の履歴の全件を引く。
@@ -1886,8 +1972,10 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | 期生を文字列で受け取り、全角をそろえて整数に直す | `"007"` を受け付けるかなど、読み方を別に決めることになる。画面が数値に直せば足りる（8.15、rules.md 6.4） |
 | 教員から期生が送られたら `INPUT_COHORT` で断る | 画面で生徒から教員に切り替えたときに残った値で断られる。教員の意図は `role` で読める（8.15） |
 | 学籍番号の前後の空白を台帳で除く | 要件は名前（USR-5）にだけ前後の空白を除くとしている。管理者の ID と扱いをそろえる。画面で除くかは screens.md で決める（rules.md 6.4） |
-| 置き換えの記録に、変わった項目だけを入れる | 1件だけでその時点の名前・期生がわからない（8.15） |
-| `POST /api/me` で、名前・期生の比べ方を `api/` に書く | 判定が `api/` に入る。`decideUserInput` にする（rules.md 6.5） |
+| 置き換えの記録に、変わった項目だけを入れる | 1件だけでその時点の名前・期生がわからない（8.15.1） |
+| 名前と期生の変更で、名前・期生の比べ方を `api/` に書く | 判定が `api/` に入る。`decideUserChange` にする（rules.md 6.5） |
+| 登録で、すでにいる利用者の名前・期生が送られた値と同じなら成功にする | 学籍番号が他の利用者と同じことに気づけない（8.15.2） |
+| 登録とログインを1つの API にし、名前の有無で分ける（`POST /api/me` を残す） | 断る理由と記録の有無が中身の組み合わせで変わる（screens-and-api.md 4） |
 | 予約状況（`GET /api/devices/{id}/day`）を機器の機能に含める | 予約の状態・日の範囲の部品を先に作ることになり、予約がないうちは手で確かめられない（8.22） |
 | 管理者の機器の一覧に、削除した機器も出す | 要件にない。削除した機器は記録と行に残る（8.18） |
 | 機器の削除の応答で、取り消した予約の件数を返す | 要件にない。影響範囲の事前表示は10章で除かれている（8.21） |
@@ -1903,7 +1991,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | 取消で、予約を `id = ? AND user_id = ?` で引く | 本人のものかの判定が SQL に入る（rules.md 3。8.30） |
 | 時間帯の変更で、変える側の時刻だけを送らせる | 画面が変えた欄を見分ける必要があり、API の入力の形が変わる（rules.md「要件の読み方」。8.32） |
 | 時間帯の変更で、両方とも変えないときに断る | 画面が欄を触らずに決定しただけでエラーになる。機器の名前の変更の `unchanged` と扱いがそろわない（8.32） |
-| 時間帯の変更の記録に、変えた側の時刻だけを入れる | 1件だけでその時点の時間帯がわからない（8.15 の `user_renamed` と同じ。8.32） |
+| 時間帯の変更の記録に、変えた側の時刻だけを入れる | 1件だけでその時点の時間帯がわからない（8.15.1 の `user_renamed` と同じ。8.32） |
 | 予約の管理の一覧に期生も入れる | MNG-3 が挙げる項目にない。利用者は学籍番号で見分けられる（8.37） |
 | 予約の管理の一覧に `now` を入れる | 出す操作は状態だけで決まり、時刻によらない（8.37） |
 | 管理者による取消・終了のパスを機器の下に置く（`/api/admin/devices/{id}/reservations/{rid}/cancel`） | 基本設計の経路と変わる。予約の番号だけで対象が決まり、機器の番号が要らない（8.38） |
