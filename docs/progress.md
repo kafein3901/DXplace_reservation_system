@@ -113,8 +113,8 @@
 
 ### 次の作業
 
-1. **push して GitHub Actions を確かめる。次のセッションはここから始める。** bffcc45・c2f5afe・1b435af と共有された情報の設定のコミットを push し、GitHub Actions の `npm ci` → `npm test` が通るかを確かめる（push は開発者の指示で行う）。手での確認（screens.md 6.2 の段 1〜3）は 2026-11-20 に済んだ。
-2. 利用の開始の実装（api.md 8.11〜8.14、screens.md 3.2 と 6.2 の段 4）。
+1. **利用の開始の実装（api.md 8.11〜8.14、screens.md 3.2 と 6.2 の段 4）。次のセッションはここから始める。**
+2. （済み）push と GitHub Actions の確認：2026-11-20 に開発者の指示で 36db2c1 までを push し、`test` のジョブ（`npm ci` → `npm test`）がすべて成功した。あわせて、リポジトリが公開（public）で GitHub Pages が有効になっており、push のたびに「pages build and deployment」が動くことに気づいた。止めるかは開発者が決める（下の「未解決の質問」）。
 3. 以降は「機能を縦に切る順」で1つずつ実装する：利用者の入力 → 機器 → 予約の操作①〜⑤ → 予約の管理 → 数値の変更 → 管理者の画面からの管理者のアカウント。画面（screens.md）はその機能の実装に含める。
 4. 結合テスト（上の「進め方」4）。NFR-2 の結果の控えの置き場所はこのときに決める（screens.md 6.4）。
 
@@ -187,6 +187,7 @@ schema.md で決めた持ち越し事項：終了 > 開始の制約を付けな�
 
 ## 未解決の質問・確認事項
 
+- **GitHub Pages**（2026-11-20 に気づいた）：リポジトリは公開で、Pages が有効。push のたびに「pages build and deployment」が動く。v0.1.0 は公開しないので、Pages を止めるか、リポジトリを非公開にするかを開発者が決める（設定はリポジトリの Settings → Pages で、開発者が行う）。
 
 - architecture.md から持ち越し：PBKDF2 の `await` の間に他のリクエストが割り込みうる（管理者のパスワードを扱う操作だけ `blockConcurrencyWhile` で包むと決めた。リクエストの処理の中でも動くことは実測で確かめた。台帳の層のテストでも確かめる）。USR-7 の名前の置き換えは `POST /api/me` だけで行う（確認済み。screens-and-api.md）。
 
