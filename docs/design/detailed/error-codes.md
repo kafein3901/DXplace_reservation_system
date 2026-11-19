@@ -2,7 +2,7 @@
 
 - 状態：作成中（形と共通のコードを決定。機能ごとのコードは、機能ごとの設計で足す）
 - 日付：2026-11-19
-- 関係する要件：RSV-27, TIM-7, RSV-5, USR-1〜USR-6, ADM-2, ADM-3, SEC-3, NFR-4, FUT-1
+- 関係する要件：RSV-27, TIM-7, RSV-5, USR-1〜USR-6, MNG-1, MNG-2, ADM-2, ADM-3, SEC-3, NFR-4, FUT-1
 - 前提：[screens-and-api.md](../basic/screens-and-api.md) 7（応答の形、頭と HTTP、コードは1つだけ）、[rules.md](rules.md) 1, 4（戻り値の形、確かめる順）、[api.md](api.md) 4（API に共通の確かめる順）、[auth.md](../basic/auth.md) 3, 8
 
 ここでは、理由のコードの一覧の形と、すべての API に共通のコードを決める。コードは `rules/`・`lib/`・`api/` が返し、画面の `public/js/messages.js` が文に直す。
@@ -44,6 +44,7 @@
 | `INPUT_ROLE` | USR-3 | 利用者の入力、利用者の操作の API（api.md 8.16） | 1 | 生徒か教員か（`role`）が `student`・`teacher` のどちらでもない（rules.md 6.4） |
 | `INPUT_STUDENT_ID` | USR-4 | 利用者の入力、利用者の操作の API | 1 | 学籍番号が、そろえた後に、選んだ側（生徒・教員）の形式に合わない（rules.md 6.4） |
 | `INPUT_COHORT` | USR-6 | 利用者の入力 | 1 | 生徒で、期生がない、数値でない、1以上の整数でない（rules.md 6.4）。教員では返さない（送られても無視する） |
+| `INPUT_DEVICE_NAME` | MNG-1 | 機器の追加・名前の変更（`POST /api/admin/devices`、`…/{id}/rename`） | 1 | 機器の名前が、前後の空白を除いて1〜30文字でない、または改行・制御文字を含む（rules.md 6.6、design-values.md） |
 
 - `INPUT_COHORT` は、項目の型の誤りも含む。期生は要るかどうかが生徒か教員かで変わるので、共4 の `INPUT_BODY` ではなく段 1 で確かめる（rules.md 6.4）。`role`・`student_id`・`name` の型の誤りは `INPUT_BODY`。
 
@@ -82,6 +83,7 @@
 | `NOT_FOUND_API` | RSV-27 | すべて | 共1 | そのメソッドとパスの API がない。パスの `{id}` が正の整数の形でないときも含む |
 | `NOT_FOUND_ADMIN` | ADM-2 | パスワードの設定し直し（保守用） | 2 | その番号の管理者がいない、または削除されている（rules.md 6.1） |
 | `NOT_FOUND_USER` | USR-3, USR-4 | 利用者の操作の API（api.md 8.16。`POST /api/me` を除く） | 2 | 送られた識別の組（生徒か教員か・そろえた学籍番号）の利用者がいない（`POST /api/me` をまだしていない）。段 2 の最初に確かめる |
+| `NOT_FOUND_DEVICE` | MNG-1, MNG-2 | 機器の名前の変更・削除（`POST /api/admin/devices/{id}/rename`、`…/delete`） | 2 | その番号の機器がない、または削除されている（rules.md 6.7）。予約の操作の API でも使う（その機能の設計で「返す API」に足す） |
 
 - `NOT_FOUND_USER` を受けた画面は、利用者の入力の画面に移る。利用者がいるかどうかが外からわかるが、利用者の入力をすればだれでも作れるので、隠しても守れるものがない（PRE-1）。
 
@@ -97,6 +99,8 @@
 | --- | --- | --- | --- | --- |
 | `RULE_TIME_ORDER` | TIM-7, RSV-5 | 確保、時間帯の変更、予約なしの利用 | 5 | 終了が開始より後でない。時間帯の変更では、変えない側の保存してある時刻と合わせて比べる。利用終了には当てはめない（TIM-7） |
 | `RULE_ADMIN_ID_DUPLICATE` | ADM-2, RSV-23 | 管理者の作成（保守用） | 8 | そろえた後の管理者の ID が、ほかの管理者（削除した管理者を含む）の ID と同じ（rules.md 6.1） |
+| `RULE_DEVICE_NAME_DUPLICATE` | MNG-1, RSV-23 | 機器の追加・名前の変更 | 8 | 前後の空白を除いた名前が、削除していないほかの機器の名前と完全に一致する（全角・大小はそろえない。rules.md 6.7） |
+| `RULE_DEVICE_IN_USE` | MNG-2, RSV-23 | 機器の削除 | 8 | その機器に利用中の予約がある（自動の変化を反映した後。rules.md 6.7） |
 
 - `RULE_TIME_ORDER` を `INPUT_` にしないのは、時間帯の変更では保存してある値と比べるので、入力だけでは決まらないため（上の 1）。
 - そのほかの `RULE_` のコード（段 4・6・7・8）は、機能ごとの設計で足す。

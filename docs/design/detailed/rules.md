@@ -1,6 +1,6 @@
 # ルールの判定
 
-- 状態：作成中（枠組みを決定。ルールごとの節は、機能ごとの設計で足す）
+- 状態：作成中（枠組みを決定。ルールごとの節は、機能ごとの設計で足す。6.7 まで決定）
 - 日付：2026-11-19
 - 関係する要件：RSV-1〜RSV-27, TIM-1〜TIM-7, MNG-1〜MNG-3, ADM-2, USR-3〜USR-7, SEC-3, NFR-4
 - 前提：[architecture.md](../basic/architecture.md)（手順 1〜7、`rules/` は純粋な関数）、[time-and-concurrency.md](../basic/time-and-concurrency.md)（`nowMin`、自動の変化の反映）、[domain-model.md](../basic/domain-model.md)（状態の移り方、数値の履歴）、[screens-and-api.md](../basic/screens-and-api.md) 7（コードは1つだけ返す）
@@ -137,7 +137,7 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 利用開始 | RSV-14〜RSV-16 | 未 |
 | 利用終了 | RSV-18 | 未 |
 | 管理者による取消・終了 | MNG-3 | 未 |
-| 機器の追加・名前の変更・削除 | MNG-1, MNG-2 | 未 |
+| 機器の追加・名前の変更・削除 | MNG-1, MNG-2 | 済（名前の検証は 6.6、判定は 6.7。api.md 8.18〜8.23） |
 | 管理者の作成・パスワードの設定し直し | ADM-2 | 済（6.1。保守用の API の設計で決めた。管理者の画面からの操作も同じ関数を使う） |
 | 管理者の削除 | ADM-2 | 未 |
 | 数値の変更 | RSV-25 | 未 |
@@ -290,6 +290,59 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | --- | --- |
 | USR-7 | `null` なら `create`。名前だけ違う、期生だけ違うときはどちらも `rename`。どちらも同じなら `unchanged`。名前の大文字と小文字の違い、全角と半角の違いも `rename` |
 
+### 6.6 機器の名前の検証（`src/lib/`。MNG-1）
+
+1.2 の形で返す。
+
+| 関数 | 手順 | `value` | コード |
+| --- | --- | --- | --- |
+| `validateDeviceName(s)` | `validateName`（6.2）と同じ手順：(1) 改行と制御文字（Unicode の Cc、U+2028、U+2029）を1つでも含めば断る。(2) 前後の空白を除く。(3) 除いた後の長さがコードポイントで1以上30以下か確かめる | 前後の空白を除いた名前 | `INPUT_DEVICE_NAME` |
+
+- **上限は30（design-values.md）。** MNG-1 は上限を設計に任せている。利用者・管理者の名前（USR-5）と同じ値にそろえ、画面の選択肢の幅も同じ考え方で済ませる。「3Dプリンタ（Bambu Lab X1 Carbon）1号機」で28文字。
+- **改行と制御文字を断る。** MNG-1 には書かれていないが、名前は利用者の画面の選択肢・予約・記録に出るので、表示と Data Studio での読みを崩さないために断る（2026-11-19 に開発者が了承）。
+- **コードを `INPUT_NAME` と分ける。** 画面で「機器の名前は…」と出し分けるため。手順は同じなので、実装では `validateName` と共通の内部の関数を使ってよい（上限だけを引数にする）。
+- 全角と半角、大文字と小文字はそろえない（6.7 の比べ方と同じ）。
+
+テストの観点（部品の層）：
+
+| ID | 受け付ける | 断る |
+| --- | --- | --- |
+| MNG-1（`validateDeviceName`） | 1文字・30文字（前後の空白を除いて）、前後の空白・全角の空白を除いた値を返す、全角の英数字をそのまま返す | 空、空白だけ、31文字、途中・末尾の改行、タブ、U+0000。どれも `INPUT_DEVICE_NAME` |
+
+### 6.7 機器の追加・名前の変更・削除（`src/rules/devices.js`。MNG-1, MNG-2）
+
+| 関数 | 引数 | 段 | 確かめること | コード |
+| --- | --- | --- | --- | --- |
+| `checkDeviceCreate(sameName)` | store が、削除していない機器から、前後の空白を除いた名前と完全に一致するものを引いた行。なければ `null` | 8 | `null` でなければ断る | `RULE_DEVICE_NAME_DUPLICATE` |
+| `checkDeviceRename(device, sameName)` | `device`：store が番号で引いた機器の行（削除した行も含む。なければ `null`）。`sameName`：`checkDeviceCreate` と同じ | 2 | `device` が `null`、または `deleted_at` が `NULL` でなければ断る | `NOT_FOUND_DEVICE` |
+| | | 8 | `sameName` があり、その番号が `device` と違えば断る | `RULE_DEVICE_NAME_DUPLICATE` |
+| `checkDeviceDelete(device, active)` | `device`：`checkDeviceRename` と同じ。`active`：store が引いた、その機器の予約済・利用中の予約の全件 | 2 | `checkDeviceRename` の段 2 と同じ | `NOT_FOUND_DEVICE` |
+| | | 8 | `active` に利用中が1件でもあれば断る | `RULE_DEVICE_IN_USE` |
+
+受け付けるときの戻り値：
+
+| 関数 | 戻り値 |
+| --- | --- |
+| `checkDeviceCreate` | `{ ok: true }` |
+| `checkDeviceRename` | `{ ok: true, action }`。`action` は、`device.name` と新しい名前が同じなら `unchanged`、違えば `rename` |
+| `checkDeviceDelete` | `{ ok: true, cancel }`。`cancel` は `active` のうち予約済の予約の番号の一覧（番号の順） |
+
+- **名前は、前後の空白を除いた後の文字列をそのまま比べる。** 全角と半角、大文字と小文字はそろえない（`３Dプリンタ` と `3Dプリンタ` は別の名前）。要件は「重複しない」とだけ書いており、そろえるとどこまでを同じとみなすか（NFKC、途中の空白など）を新しく決めることになる。機器を足すのは管理者だけで台数も少ない。利用者の名前の比べ方（6.5）ともそろう。schema.md 2.2 の `devices_name_current` がそのまま最後の守りになる。
+- **自分と同じ名前への変更は `unchanged`。** `sameName` が自分自身なら重複にしない。`api/` は何も書かず、記録もしない（6.5 の `unchanged` と同じ）。
+- **削除した機器の名前は再び使える（MNG-1）。** store が `sameName` を削除していない機器だけから引く。
+- **削除で取り消す予約を決めるのは rules。** 「その機器の予約済をすべて」という MNG-2 の判定を `api/` に書かないため。
+- **利用中かどうかは、自動の変化を反映した後の状態で見る（5.3）。** 終了時刻が `nowMin` 以下の利用中の予約はすでに終了になっているので、削除を妨げない（RSV-22「同じ時刻では自動の変化が先」）。猶予を過ぎた予約済も、無断不使用になっていて `cancel` に入らない。
+- 段 1 は `api/` が 6.6 で確かめる。段 3〜7 に当たるものはない。重複と利用中を段 8 に置くのは、ほかの行しだいで変わるものを最後にする考え方（4）による。
+- 同時の操作（RSV-23）は、判定から書き込みまでの間に `await` がないので割り込まれない（api.md 8.19〜8.21）。
+
+テストの観点（ルールの層）：
+
+| ID | 受け付ける | 断る |
+| --- | --- | --- |
+| MNG-1（`checkDeviceCreate`） | `null` | 行がある（`RULE_DEVICE_NAME_DUPLICATE`） |
+| MNG-1（`checkDeviceRename`） | `sameName` が `null` で名前が違う（`rename`）。`sameName` が自分自身（`unchanged`）。大文字と小文字だけ違う名前（`rename`） | `null`・削除済み（`NOT_FOUND_DEVICE`）、`sameName` が別の機器（`RULE_DEVICE_NAME_DUPLICATE`）。削除済みで `sameName` も別の機器なら `NOT_FOUND_DEVICE`（段 2 が先） |
+| MNG-2（`checkDeviceDelete`） | `active` が空（`cancel` は空）。予約済だけ（`cancel` がその番号の一覧） | `null`・削除済み（`NOT_FOUND_DEVICE`）、予約済と利用中が混ざっている（`RULE_DEVICE_IN_USE`）。削除済みで利用中があっても `NOT_FOUND_DEVICE` |
+
 ## 7. 共通のテストの観点
 
 | 対象 | 観点 |
@@ -310,6 +363,10 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | store が SQL で正確に絞り込み、rules は結果を受け取るだけ | 判定が SQL と JavaScript に分かれ、DB なしで確かめられない |
 | 操作ごとの関数でも猶予・終了時刻を比べ直す | 自動の変化の判定と2か所に分かれる |
 | 数値を `nowMin` の時点の値に直してから渡す | 猶予は開始時刻の時点の値が要る（RSV-26）。引き方を1つの関数にまとめる |
+| 機器の名前を `toHalfWidthLower` でそろえて比べる（比べる列を足す） | どこまでを同じとみなすかを新しく決めることになり、機器を足すのは管理者だけで得るものが小さい（6.7） |
+| 機器の名前の上限を50などにする | 名前（USR-5）と別の値になり、画面の幅も考え直すことになる（6.6） |
+| 機器の名前は前後の空白を除くことと長さだけを確かめる | 改行や制御文字が選択肢・記録に入り、表示が崩れる（6.6） |
+| 削除で取り消す予約を `api/` が選ぶ | MNG-2 の判定が `api/` に入る（6.7） |
 
 ## 要件の読み方（確認済み）
 

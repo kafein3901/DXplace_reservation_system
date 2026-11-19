@@ -14,7 +14,7 @@
 | 管理者の認証の期限 | なし（認証を解く操作と ADM-2 の操作でだけ止まる） | ADM-2 | [auth.md](auth.md) 3 | 確認済み |
 | Cookie の期限 | 400日。使うたびに延ばして渡し直す（利用を始めた証明、管理者の認証とも） | USR-2, ADM-2 | [auth.md](auth.md) 3 | 決定 |
 | PBKDF2 の反復回数（管理者のパスワード） | 100,000 回（workerd の上限） | SEC-4 | [auth.md](auth.md) 4、[platform-selection.md](platform-selection.md) 実測の結果 2 | 決定（2026-11-18） |
-| 機器の名前の上限 | 未定 | MNG-1 | ― | 未定 |
+| 機器の名前の上限 | 前後の空白を除いて30文字（コードポイント）まで。改行と制御文字は断る。全角・大小はそろえずに比べる | MNG-1 | [../detailed/rules.md](../detailed/rules.md) 6.6, 6.7 | 決定（2026-11-19） |
 | API の本文の上限 | 16 KiB。超えたら読まずに `INPUT_BODY` | RSV-27 | [../detailed/api.md](../detailed/api.md) 2 | 決定（2026-11-19） |
 | 失敗の記録の持ち方 | 入口・相手・10分の区切りごとに1行にまとめる。上限に達した後の試行は書かない。全体で10,000行を超えたら古いものから消す | LOG-4 | [logging.md](logging.md) 4 | 決定 |
 | 利用がなかった時間の長さ | 24時間 | OPN-1 | [platform-selection.md](platform-selection.md) 実測の結果 4 | 決定（2026-11-18） |

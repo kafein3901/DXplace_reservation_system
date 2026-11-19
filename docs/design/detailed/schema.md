@@ -61,7 +61,7 @@ CREATE UNIQUE INDEX devices_name_current ON devices (name) WHERE deleted_at IS N
 
 - 削除は `deleted_at` を入れるだけで、行は残す（LOG-2）。削除した機器の名前は、削除の時点の名前のまま残る（MNG-1）。
 - `devices_name_current` は、削除していない機器どうしで名前が重ならないことの最後の守り。重なりの判定と理由のコードは rules で行う（rules.md 3）。
-- 名前の比べ方（全角と半角、英字の大小をそろえるか）と上限は、機器の機能の設計で決める。そろえて比べることにしたら、比べるための列を足し、索引をその列に作り直す（足す形で済む）。
+- 名前は前後の空白を除いた後の文字列をそのまま比べ、全角と半角、英字の大小はそろえない（rules.md 6.7。2026-11-19 に機器の機能の設計で決めた）。比べるための列は足さず、`devices_name_current` をそのまま使う。上限（30文字）は rules.md 6.6。
 
 ### 2.3 `reservations`（予約。RSV-1〜RSV-20, MNG-2, MNG-3）
 
@@ -231,7 +231,7 @@ CREATE INDEX events_user_at ON events (user_id, at);
 | `reservation_time_changed` | 時間帯の変更（RSV-9, RSV-10, RSV-15 の前倒し） | 予約・機器・利用者 | 前後の `start_at`、`end_at` |
 | `user_created` | 利用者を作った | 利用者 | `name`、`cohort` |
 | `user_renamed` | 名前・期生を置き換えた（USR-7） | 利用者 | `before`・`after` に、それぞれ `name`・`cohort`（片方だけ変わっても両方。api.md 8.15） |
-| `device_created`・`device_renamed`・`device_deleted` | 機器の追加・名前の変更・削除 | 機器 | 前後の `name` |
+| `device_created`・`device_renamed`・`device_deleted` | 機器の追加・名前の変更・削除 | 機器 | 追加・削除は `name`。名前の変更は `before`・`after` に、それぞれ `name`（api.md 8.19〜8.21） |
 | `setting_changed` | 数値の変更（RSV-25） | なし | `key`、前後の `value`、`effective_at` |
 | `admin_created`・`admin_deleted`・`admin_password_reset` | 管理者のアカウント | 管理者 | `login_id`、`display_name`。パスワードは入れない |
 | `shared_info_set` | 共有された情報の設定・変更（ADM-3） | なし | `version`（新しい `shared_infos.id`）。値もハッシュも入れない |

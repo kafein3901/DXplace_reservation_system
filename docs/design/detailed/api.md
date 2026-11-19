@@ -1,8 +1,8 @@
 # API
 
-- 状態：作成中（共通の部分、保守用の API、管理者の認証、共有された情報の設定、利用の開始、利用者の入力を決定。残りの API の入出力は、機能ごとの設計で足す）
+- 状態：作成中（共通の部分、保守用の API、管理者の認証、共有された情報の設定、利用の開始、利用者の入力、機器を決定。残りの API の入出力は、機能ごとの設計で足す）
 - 日付：2026-11-19
-- 関係する要件：USR-1〜USR-7, LOG-1, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
+- 関係する要件：USR-1〜USR-7, LOG-1〜LOG-4, MNG-1, MNG-2, VIW-1, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
 - 前提：[architecture.md](../basic/architecture.md) 1, 3, 4（Worker は渡すだけ、手順 1〜7）、[screens-and-api.md](../basic/screens-and-api.md) 4〜7（API の一覧、応答の形）、[auth.md](../basic/auth.md) 1, 3, 6, 7（入口の種類、Cookie と Origin、保守用の鍵、試行の制限）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 2, 4（時刻を取る位置、`blockConcurrencyWhile`）、[error-codes.md](error-codes.md)、[schema.md](schema.md) 5（版の適用）
 
 ここでは、すべての API に共通の受け渡しの形、Worker と台帳の受け渡し、デプロイの直後の版の食い違いへの備え、保守用の API の `curl` 手順の形を決める。API ごとの入出力と返しうるコードは、機能ごとの設計で 8 に足す。
@@ -212,6 +212,7 @@ API を変えるときの決まり：
 | `POST /api/admin/shared-info` | 共有された情報の設定・変更（ADM-3） | 済（8.9〜8.10） |
 | `POST /api/session`、`GET /api/session`、利用者の API に共通の証明の確かめ方 | 利用の開始（USR-2） | 済（8.11〜8.14） |
 | `POST /api/me`、利用者の操作の API に共通の利用者の引き方 | 利用者の入力（USR-3〜USR-7, LOG-1） | 済（8.15〜8.17） |
+| `GET /api/admin/devices`、`POST /api/admin/devices`、`POST /api/admin/devices/{id}/rename`、`…/delete`、`GET /api/devices` | 機器（MNG-1, MNG-2, VIW-1 の機器の一覧） | 済（8.18〜8.23） |
 | screens-and-api.md 5 の一覧の残りすべて | rules.md 6 の表の各機能と、利用者の入力・予約状況 | 未 |
 
 ### 8.1 `POST /api/maint/admins`（管理者の作成。ADM-2）
@@ -710,6 +711,169 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 
 `NOT_FOUND_USER`（8.16）は、それを返す最初の API（予約の確保）のテストで確かめる。
 
+### 8.18 `GET /api/admin/devices`（機器の一覧。MNG-1）
+
+管理者の画面で、機器の管理と予約の管理（MNG-3）の選択肢に使う。経路の表では、認証の種類は「管理者」、包むかは「包まない」。
+
+処理：準備（8.5 の 1）→ `clock()` → 共3（8.5 の 2）→ `transactionSync` の中で自動の変化を反映し、store が削除していない機器を番号の順に引く → 成功を返す（`Set-Cookie` で期限を延ばす。8.5）。
+
+応答の `data`：
+
+| 項目 | 内容 |
+| --- | --- |
+| `devices` | 削除していない機器の配列。番号の順（作った順。機器の順番は10章で除かれている）。1つは `{ id, name }` |
+
+- 削除した機器は出さない。削除した機器の名前は記録（`events`）と `devices` の行に残る（LOG-2）。
+- 機器が1つもなければ空の配列。
+
+返しうるコード（確かめる順）：`NOT_FOUND_API` → `AUTH_REQUIRED` → `AUTH_REVOKED`。`GET` なので `Origin` と本文は確かめない。
+
+記録：読むだけなので書かない。反映した自動の変化は記録する（logging.md 2）。
+
+### 8.19 `POST /api/admin/devices`（機器の追加。MNG-1, LOG-4）
+
+経路の表では、認証の種類は「管理者」、包むかは「包まない」。
+
+要求の本文：
+
+| 項目 | 型 | 省略 | 内容 |
+| --- | --- | --- | --- |
+| `name` | 文字列 | できない | 機器の名前。前後の空白を除いて保存する（rules.md 6.6） |
+
+処理：
+
+1. 準備：本文を読む。管理者の Cookie の値のハッシュを求める（8.5 の 1）。
+2. `clock()` で現在時刻を取る。
+3. 共2（`Origin`）→ 共3（8.5 の 2）→ 共4（本文が JSON のオブジェクトで、`name` が文字列であること）。
+4. 段 1：`validateDeviceName`（rules.md 6.6）。
+5. `transactionSync` の中で：
+   1. 自動の変化を反映する（rules.md 5）。
+   2. store が、削除していない機器から、前後の空白を除いた名前と完全に一致する行を引く（なければ `null`）。
+   3. `checkDeviceCreate(行)`（rules.md 6.7）。断られたら、そのコードを返す（反映した自動の変化は残る）。
+   4. `devices` に1行足し（`created_at` は 2 の時刻、`deleted_at` は `NULL`）、記録を書く。
+6. 成功を返す（`Set-Cookie` で期限を延ばす）。
+
+- **段 1 で断るときは何も書かない。** 自動の変化も反映しない（8.15 と同じ）。
+- **段 2・段 8 で断るときも、反映した自動の変化は残す。** 反映は操作と関係なく正しい変化で、取り消す理由がない。断るのは戻り値で行い、例外を投げないので `transactionSync` は取り消されない（rules.md 1.1）。8.20・8.21 も同じ。
+- **ほぼ同時の追加（RSV-23）。** 3 の後から 5 の終わりまでに `await` がないので、同じ名前を2つ同時に送ると、後の要求は先の行を見て `RULE_DEVICE_NAME_DUPLICATE` になる。`devices_name_current`（schema.md 2.2）は最後の守りで、判定とコードは rules が持つ。
+
+応答の `data`：
+
+| 項目 | 内容 |
+| --- | --- |
+| `id` | 機器の番号（`devices.id`） |
+| `name` | 前後の空白を除いた名前 |
+
+返しうるコード（確かめる順）：
+
+| 順 | コード | 段 |
+| --- | --- | --- |
+| 1 | `NOT_FOUND_API` | 共1 |
+| 2 | `AUTH_ORIGIN` | 共2 |
+| 3 | `AUTH_REQUIRED`・`AUTH_REVOKED` | 共3 |
+| 4 | `INPUT_BODY` | 共4 |
+| 5 | `INPUT_DEVICE_NAME` | 1 |
+| 6 | `RULE_DEVICE_NAME_DUPLICATE` | 8 |
+
+記録（`events`。LOG-4）：`at` は 2 の時刻、`actor_kind = 'admin'`、`actor_admin_id` は操作した管理者の番号、`kind = 'device_created'`、`device_id` は足した機器の番号、ほかの番号の列は `NULL`、`detail` は `{"name": …}`。
+
+### 8.20 `POST /api/admin/devices/{id}/rename`（機器の名前の変更。MNG-1, LOG-4）
+
+経路の表では、認証の種類は「管理者」、包むかは「包まない」。
+
+要求の本文：8.19 と同じ（`name`）。
+
+処理は 8.19 と同じ流れで、5 が次のようになる。
+
+1. 自動の変化を反映する。
+2. store が `{id}` の機器の行を削除した行も含めて引き（なければ `null`）、あわせて 8.19 の 5.2 と同じく同じ名前の行を引く。
+3. `checkDeviceRename(機器, 同じ名前の行)`（rules.md 6.7）。断られたら、そのコードを返す。
+4. `action` が `rename` なら、その行の `name` を上書きし、記録を書く。`unchanged` なら何も書かない。
+
+- **名前は行を上書きし、前の名前は記録に残す。** 予約や記録には機器の現在の名前を出す（MNG-1）ので、予約の側に名前を写さない。表示する API は `devices.name` を引く。
+- **削除した機器の名前は変えられない。** `NOT_FOUND_DEVICE` で断る。削除した機器の名前は、削除の時点の名前のまま残る（MNG-1）。
+
+応答の `data`：8.19 と同じ（`id`・`name`）。`unchanged` でも同じ形で返す。
+
+返しうるコード（確かめる順）：`NOT_FOUND_API`（`{id}` が正の整数の形でないときも）→ `AUTH_ORIGIN` → `AUTH_REQUIRED`・`AUTH_REVOKED` → `INPUT_BODY` → `INPUT_DEVICE_NAME`（段 1）→ `NOT_FOUND_DEVICE`（段 2。ない、または削除済み）→ `RULE_DEVICE_NAME_DUPLICATE`（段 8）。
+
+記録：`rename` のときだけ、8.19 と同じ形で `kind = 'device_renamed'`、`device_id` は対象の機器、`detail` は `{"before": {"name": …}, "after": {"name": …}}`（8.15 の `user_renamed` と形をそろえる）。
+
+### 8.21 `POST /api/admin/devices/{id}/delete`（機器の削除。MNG-1, MNG-2, LOG-2, LOG-3, LOG-4）
+
+経路の表では、認証の種類は「管理者」、包むかは「包まない」。
+
+要求の本文：項目なし。画面は `{}` を送る（8.7 と同じ）。
+
+処理：
+
+1. 準備：本文を読む。管理者の Cookie の値のハッシュを求める。
+2. `clock()` で現在時刻を取る。
+3. 共2 → 共3 → 共4。段 1 に当たるものはない。
+4. `transactionSync` の中で：
+   1. 自動の変化を反映する。
+   2. store が `{id}` の機器の行を削除した行も含めて引き（なければ `null`）、その機器の予約済・利用中の予約を全件引く（`reservations_device_status`。schema.md 3）。
+   3. `checkDeviceDelete(機器, 予約の一覧)`（rules.md 6.7）。断られたら、そのコードを返す。
+   4. 機器の `deleted_at` に 2 の時刻を書き、記録 `device_deleted` を書く。
+   5. `cancel` の予約を番号の順に1件ずつ、`status = 'admin_cancelled'`・`cause = 'device_deleted'` にし、1件ごとに記録 `reservation_status` を書く。
+5. 成功を返す。
+
+- **利用中があれば何も変えない（MNG-2）。** 4.3 で断るので、予約済の予約も取り消されない。
+- **判定と書き込みを分けない（RSV-23）。** 4 の中に `await` がないので、削除と同時に送られた確保・予約なしの利用・利用開始は、削除の前か後のどちらかに処理される。前なら削除の判定に入り（利用中なら断る、予約済なら取り消す）、後なら機器が削除済みとして断られる（予約の操作の設計で `NOT_FOUND_DEVICE` を返す）。
+- **自動の変化が先（RSV-22）。** 終了時刻が `nowMin` 以下の利用中は 4.1 で終了になるので、削除を妨げない。猶予を過ぎた予約済は無断不使用になり、管理者による取消にはならない。
+- **時刻は秒を切り捨てない（TIM-5）。** `deleted_at` と記録の `at` は 2 の時刻のまま。取消は時間帯の境界を決めないので、予約の `start_at`・`end_at` は変えない。
+- **取り消した件数は返さない。** 影響範囲の事前表示は10章で除かれており、後から示すことも要件にない。取り消したことは記録に残る。
+- **行は消さない（LOG-2）。** 機器・予約とも状態の列を書き換えるだけ。
+
+応答の `data`：8.19 と同じ（`id`・`name`。`name` は削除の時点の名前）。
+
+返しうるコード（確かめる順）：`NOT_FOUND_API` → `AUTH_ORIGIN` → `AUTH_REQUIRED`・`AUTH_REVOKED` → `INPUT_BODY` → `NOT_FOUND_DEVICE`（段 2。ない、またはすでに削除済み）→ `RULE_DEVICE_IN_USE`（段 8）。
+
+記録（`events`。LOG-2〜LOG-4）：どれも `at` は 2 の時刻、`actor_kind = 'admin'`、`actor_admin_id` は操作した管理者の番号。原因が先に読めるよう、機器の削除を先に書き、取消をその後に番号の順に書く。
+
+| 何 | `kind` | 番号の列 | `detail` |
+| --- | --- | --- | --- |
+| 機器の削除 | `device_deleted` | `device_id` | `{"name": 削除の時点の名前}` |
+| 予約済の取消（1件ごと） | `reservation_status` | `reservation_id`・`device_id`・`user_id`（その予約の値） | `{"from": "reserved", "to": "admin_cancelled", "cause": "device_deleted"}` |
+
+### 8.22 `GET /api/devices`（利用者の機器の一覧。VIW-1）
+
+利用者の画面で、予約状況・確保・予約なしの利用の機器の選択肢に使う。経路の表では、認証の種類は「利用者」、包むかは「包まない」。識別の組は受け取らない（見るだけで、利用者として操作しない。screens-and-api.md 5 の予約状況と同じ考え方）。
+
+処理：準備（8.12 の 1）→ `clock()` → 共3（8.12 の 2）→ `transactionSync` の中で自動の変化を反映し、store が削除していない機器を番号の順に引く → 成功を返す（`Set-Cookie` で期限を延ばす。8.12）。
+
+応答の `data`：8.18 と同じ形（`devices`。1つは `{ id, name }`）。管理者の一覧と同じ中身で、学籍番号などの利用者の情報は含まない。
+
+返しうるコード（確かめる順）：`NOT_FOUND_API` → `AUTH_REQUIRED` → `AUTH_REVOKED`。
+
+記録：読むだけなので書かない。
+
+予約状況（`GET /api/devices/{id}/day`）は予約の操作の機能で決める。予約の状態・日本時間の日の範囲・利用者の名前を扱い、予約がないうちは手で確かめられないため。機器ごとの予約の管理者向けの一覧（`GET /api/admin/devices/{id}/reservations`）は、予約の管理（MNG-3）の機能で決める。
+
+### 8.23 台帳の層のテストの観点（機器）
+
+| ID | 確かめること |
+| --- | --- |
+| MNG-1 | 追加すると `devices` に1行でき（名前は前後の空白を除いた値、`deleted_at` は `NULL`）、応答の `data` がその値になる。`GET /api/admin/devices`・`GET /api/devices` に番号の順で出る |
+| MNG-1 | 同じ名前（前後の空白だけ違うものを含む）の追加は `RULE_DEVICE_NAME_DUPLICATE`（409）で、行が増えない。大文字と小文字、全角と半角だけが違う名前は追加できる |
+| MNG-1 | 削除した機器と同じ名前は追加できる。名前の変更でも、削除した機器の名前に変えられる |
+| MNG-1 | 名前を変えると行が上書きされ、`device_renamed` の `before`・`after` が前後の名前。ほかの機器の名前への変更は `RULE_DEVICE_NAME_DUPLICATE`。今と同じ名前への変更は成功し、`events` が増えない |
+| MNG-1 | 名前が空白だけ、31文字、改行入りなら `INPUT_DEVICE_NAME`（400）で、表が変わらない |
+| MNG-1 | ない番号、削除した機器の名前の変更・削除は `NOT_FOUND_DEVICE`（404） |
+| MNG-1 | 削除した機器は2つの一覧に出ない。`devices` の行は残り、`name` は削除の時点の名前 |
+| MNG-2 | 予約済の予約が2件ある機器を削除すると、2件とも `admin_cancelled`・`cause = 'device_deleted'` になり、`start_at`・`end_at` は変わらない。ほかの機器の予約は変わらない。終了・取消などの予約は変わらない |
+| MNG-2 | 利用中の予約がある機器の削除は `RULE_DEVICE_IN_USE`（409）で、機器も予約済の予約も変わらず、`events` が増えない（反映した自動の変化の記録を除く） |
+| MNG-2 | 終了時刻がちょうど `nowMin` の利用中の予約は、削除の前に終了になり（記録は自動・終了時刻）、削除できる（RSV-22） |
+| MNG-2 | 開始時刻＋猶予を過ぎた予約済の予約は、削除の前に無断不使用になり、管理者による取消にならない |
+| LOG-3 | 削除の記録は `device_deleted` が1行、取消ごとに `reservation_status`（`from`・`to`・`cause`）が1行で、`device_deleted` の `id` が最も小さい。取消の行に予約・機器・利用者の番号が入っている |
+| LOG-4 | 追加・名前の変更・削除の記録に `actor_kind = 'admin'` と `actor_admin_id` が入り、`at` は秒を切り捨てていない時刻 |
+| RSV-23 | 同じ名前の追加を2つ同時に送ると、1つは成功し、もう1つは `RULE_DEVICE_NAME_DUPLICATE`。行は1つ |
+| ADM-1 | `GET /api/devices` は管理者の Cookie だけでは `AUTH_REQUIRED`。機器の管理者の API は利用者の Cookie だけでは `AUTH_REQUIRED` |
+| API | 追加・名前の変更・削除で `Origin` がないと `AUTH_ORIGIN`。証明が有効で本文が壊れていると `INPUT_BODY`。本文に `name` がない、文字列でないときも `INPUT_BODY`。2つの一覧（`GET`）は `Origin` を確かめない |
+| RSV-21 | 開始時刻＋猶予を過ぎた予約済の予約がある台帳で、2つの一覧、追加の成功、`RULE_DEVICE_NAME_DUPLICATE` で断った追加を呼ぶと無断不使用になる。`INPUT_DEVICE_NAME` で断ったときは変わらない |
+
+テストの予約の行は、予約の操作の API ができるまでは、テストが `runInDurableObject` で表に直接入れる。
+
 ## 採らなかった案
 
 | 案 | 理由 |
@@ -747,3 +911,8 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | 学籍番号の前後の空白を台帳で除く | 要件は名前（USR-5）にだけ前後の空白を除くとしている。管理者の ID と扱いをそろえる。画面で除くかは screens.md で決める（rules.md 6.4） |
 | 置き換えの記録に、変わった項目だけを入れる | 1件だけでその時点の名前・期生がわからない（8.15） |
 | `POST /api/me` で、名前・期生の比べ方を `api/` に書く | 判定が `api/` に入る。`decideUserInput` にする（rules.md 6.5） |
+| 予約状況（`GET /api/devices/{id}/day`）を機器の機能に含める | 予約の状態・日の範囲の部品を先に作ることになり、予約がないうちは手で確かめられない（8.22） |
+| 管理者の機器の一覧に、削除した機器も出す | 要件にない。削除した機器は記録と行に残る（8.18） |
+| 機器の削除の応答で、取り消した予約の件数を返す | 要件にない。影響範囲の事前表示は10章で除かれている（8.21） |
+| 機器の追加・名前の変更・削除で、段 2・段 8 で断ったときに反映した自動の変化も取り消す | 反映は操作と関係なく正しい変化で、取り消すと次の要求でまた反映するだけになる（8.19） |
+| 機器の削除の記録で、取消を機器の削除より先に書く | 記録を番号の順に読んだときに、原因（機器の削除）より先に結果が出る（8.21） |

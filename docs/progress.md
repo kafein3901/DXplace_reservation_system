@@ -22,6 +22,8 @@
 
 **機能ごとの設計の5つ目、利用者の入力を書いた（2026-11-19 に開発者が了承）。** api.md 8.15（`POST /api/me`。本文は `role`・`student_id`・`name`・`cohort`、包まない、段 1 は `INPUT_ROLE` → `INPUT_STUDENT_ID` → `INPUT_NAME` → `INPUT_COHORT`、期生は JSON の数値で型の誤りも `INPUT_COHORT`、教員の期生は無視して `NULL`、学籍番号の前後の空白は台帳では除かない、段 1 で断れば何も書かず自動の変化も反映しない、`decideUserInput` で作る・置き換える・変わらない、記録は `user_created`（`{name, cohort}`）と `user_renamed`（`{before, after}` に両方）、応答は `{ id, role, student_id, name, cohort }`）・8.16（利用者の操作の API に共通の利用者の引き方。識別の組を段 1 の最初に確かめ、段 2 の最初で `NOT_FOUND_USER`。名前・期生は読まない）・8.17（台帳の層のテスト。8.14 から回した `AUTH_REVOKED` を含む）、rules.md 6.4（`validateRole`・`validateStudentId`・`validateCohort`）・6.5（`decideUserInput`）、error-codes.md の `INPUT_ROLE`・`INPUT_STUDENT_ID`・`INPUT_COHORT`・`NOT_FOUND_USER`、schema.md 2.9 の `user_renamed` の `detail`。design-values.md に足す値はない（期生の上限は要件になく、`Number.isSafeInteger` の範囲を事実上の上限とした）。
 
+**機能ごとの設計の6つ目、機器を書いた（2026-11-19 に開発者が了承）。** api.md 8.18（`GET /api/admin/devices`。削除していない機器を番号の順に `{ devices: [{ id, name }] }`）・8.19（`POST /api/admin/devices`。本文 `{ name }`、包まない、段 2・段 8 で断っても反映した自動の変化は残す）・8.20（`…/{id}/rename`。同じ名前への変更は `unchanged` で何も書かない、記録は `device_renamed` の `{before, after}`）・8.21（`…/{id}/delete`。本文 `{}`、利用中があれば `RULE_DEVICE_IN_USE` で何も変えない、予約済はすべて `admin_cancelled`・`cause = device_deleted`、記録は `device_deleted` を先に書き取消を番号の順に後に、取り消した件数は返さない）・8.22（`GET /api/devices`。識別の組を受け取らない、8.18 と同じ形）・8.23（台帳の層のテスト）、rules.md 6.6（`validateDeviceName`。前後の空白を除いて1〜30コードポイント、改行・制御文字を断る。MNG-1 にない条件だが開発者が了承）・6.7（`checkDeviceCreate`・`checkDeviceRename`・`checkDeviceDelete`。名前は全角・大小をそろえずに比べる）、error-codes.md の `INPUT_DEVICE_NAME`・`NOT_FOUND_DEVICE`・`RULE_DEVICE_NAME_DUPLICATE`・`RULE_DEVICE_IN_USE`、design-values.md（機器の名前の上限30）、schema.md 2.2・2.9（比べる列は足さない、`device_renamed` の `detail`）。予約状況（`GET /api/devices/{id}/day`）は予約の操作に、`GET /api/admin/devices/{id}/reservations` は予約の管理（MNG-3）に回した。
+
 **機能を縦に切る順を決めた（2026-11-19 に開発者が決定）。** 実際に使う順に進める：保守用の API（管理者の作成・パスワードの設定し直し）→ 管理者の認証 → 共有された情報の設定 → 利用の開始 → 利用者の入力 → 機器 → 予約の操作。理由：何にも頼らないものから積むので、各段を手元の `wrangler dev` で前の段の結果を使って手で確かめられ、食い違いをその段で設計に戻せる。PBKDF2 と処理全体を `blockConcurrencyWhile` で包む経路（architecture.md 3 の唯一の例外）を、画面のない最初の段で片付けられる。採らなかった案：利用の開始から利用者側を先に進め、管理者側を後に回す。予約のルールには早く着く（確保が4段目、こちらは7段目）が、共有された情報を作る手段が管理者の画面しかないので、管理者側ができるまで利用者の画面を手で通せない。
 
 ## 詳細設計の方針（2026-11-19 に開発者が決定）
@@ -63,7 +65,7 @@
 | TIM-7 で長さ0の時間帯を認めるので、予約の表に「終了 > 開始」の制約を付けない | schema.md |
 | スキーマの版と移行の仕組み（architecture.md 7） | schema.md |
 | 記録の表と予約の表の索引（logging.md 5） | schema.md |
-| 機器の名前の上限（MNG-1） | api.md。決めたら design-values.md に足す |
+| 機器の名前の上限（MNG-1） | rules.md 6.6（30文字。design-values.md に足した。2026-11-19） |
 | 確かめる順と、コードを1つだけ返すこと（screens-and-api.md 7） | rules.md、api.md |
 | デプロイ直後に Worker と台帳の版が食い違うかもしれないこと（実測で気づいたもの。下の「基盤の実測で決めたこと」） | api.md（受け渡しの形）。5 で決めた |
 | 保守用の API の `curl` 手順（screens-and-api.md 5） | api.md。6 で形を決めた。本文の項目は管理者のアカウントの機能で |
@@ -71,10 +73,12 @@
 
 ### 次の作業
 
-1. 6つ目の機能「機器（MNG-1, MNG-2, VIW-1 の機器の一覧）」の詳細設計（実装はしない）。順は上の「いまの段階」。まず設計を示して了承を得る：管理者の API（`GET/POST /api/admin/devices`、`…/{id}/rename`、`…/{id}/delete`）と利用者の `GET /api/devices` の入出力、名前の条件と上限（MNG-1。決めたら design-values.md に足す）、名前の比べ方（全角・大小をそろえるか。そろえるなら比べる列を足す。schema.md 2.2）、重なりの判定とコード（rules.md 6 の「機器の追加・名前の変更・削除」）、削除のときの予約の扱い（MNG-2。利用中があれば `RULE_DEVICE_IN_USE` で断り、予約済はすべて管理者による取消・原因 `device_deleted` にする。その記録の書き方）、記録（`device_created`・`device_renamed`・`device_deleted`）、台帳の層のテスト。予約状況（`GET /api/devices/{id}/day`）をこの機能に含めるか、予約の操作に含めるかも最初に決める。
+1. 7つ目の機能「予約の操作」の詳細設計（実装はしない）。順は上の「いまの段階」。まず設計を示して了承を得る。最初に、この機能を1つの作業に収めるか、rules.md 6 の表の行ごと（予約状況・確保 → 予約なしの利用 → 自分の予約・取消 → 時間帯の変更 → 利用開始 → 利用終了など）に分けて複数の作業にするかを決める（予約のルールの大半が入り、1つの作業としては大きい）。決めることの例：予約状況（`GET /api/devices/{id}/day`。機器の機能から回した。日の範囲の引き方は schema.md 3 の `reservations_device_end`、応答に台帳の現在時刻を入れる。screens-and-api.md 6）、時刻の形式と `lib/time.js`（`INPUT_TIME`、`YYYY-MM-DDTHH:mm` と日本時間）、確保・予約なしの利用・時間帯の変更・取消・利用開始・利用終了の判定とコード（rules.md 4 の段ごと）、`NOT_FOUND_RESERVATION`・`STATE_`・`RULE_` のコード、削除した機器への操作は `NOT_FOUND_DEVICE`（api.md 8.21）、RSV-20 を別のコードにするか（rules.md 4）、`NOT_FOUND_USER` のテスト（api.md 8.17 から回したもの）。
+   - 機能を縦に切る順に、管理者の側の残り（予約の管理 MNG-3、数値の変更 RSV-25、管理者の画面からの管理者のアカウント ADM-2）が入っていない。予約の操作の後のどこに置くかを、予約の操作の設計を始めるときに開発者と決める。
+   - screens.md に回すこと（機器の設計で出たもの）：機器の選択肢・一覧の名前は `textContent` で入れる（SEC-1）、名前の欄の上限30文字（画面の検証は使いやすさのためだけ）、削除の前に「削除しますか」の確かめを置くか（影響範囲の事前表示は10章で除かれている）、`NOT_FOUND_DEVICE` を受けたら一覧を読み直す、機器が1つもないときの表示、押している間にボタンを止めて二重に送らないこと。
    - screens.md に回すこと（利用者の入力の設計で出たもの）：生徒か教員かの選び方と、教員では期生の欄を隠すこと、期生の欄の値を数値に直して送ること（空なら送らない）、学籍番号の前後の空白を画面で除くか、`NOT_FOUND_USER` を受けたら利用者の入力の画面に移ること、応答の `student_id`（そろえた値）を変数に持って以後の操作に使うこと、名前の置き換えの前の確認は作らない（10章）。
    - screens.md に回すこと（利用の開始の設計で出たもの）：`AUTH_SHARED_INFO_WRONG` の文は「QR コードが古いか、正しくありません」、`AUTH_REQUIRED`・`AUTH_REVOKED` の案内の出し分け（`GET /api/session` の `reason` を使う）、`#k=` 付きで開いたら `GET` を呼ばずに `POST` を送り、送ったら `history.replaceState` で消す（auth.md 2）。
-   - screens.md に回すこと（共有された情報の設定の設計で出たもの）：QR コードのライブラリ（qrcode-generator）の版の固定と描き方、押す前に「変更しますか」の確かめを置くか（影響範囲の事前表示は10章で除かれている）、押している間にボタンを止めて二重に送らないこと、利用者の画面の URL の作り方（`location.origin` ＋ `/` ＋ `#k=値`）。機器の機能の設計では、名前の上限（MNG-1。design-values.md に足す）と名前の比べ方（全角・大小。schema.md 2.2）も決める。
+   - screens.md に回すこと（共有された情報の設定の設計で出たもの）：QR コードのライブラリ（qrcode-generator）の版の固定と描き方、押す前に「変更しますか」の確かめを置くか（影響範囲の事前表示は10章で除かれている）、押している間にボタンを止めて二重に送らないこと、利用者の画面の URL の作り方（`location.origin` ＋ `/` ＋ `#k=値`）。
 
 実装の段階（上の「進め方」3）に回すこと：土台（`package.json`・`.nvmrc`・`wrangler.jsonc`・Vitest の設定。Node は手元が v26.13.0、wrangler は spike で 4.163.0 を使った）、台帳の骨組み（api.md 3 の経路の表と共通の流れ、1 の応答、4 の共通の確かめる順）と schema.md 5 の版の適用。api.md 3.4 と schema.md 5.4 の基盤の機能は spike で確かめた（2026-11-19。下の「schema.md で決めた持ち越し事項」）ので、実装では台帳の層のテストに書くだけでよい。GitHub Actions は、実装の段階ではテストのジョブだけを作り、デプロイのジョブは結合テストの後に作る（Cloudflare の API トークンは学校のアカウントが作る。PRE-11 は未定）。
 
@@ -98,7 +102,7 @@ schema.md で決めた持ち越し事項：終了 > 開始の制約を付けな�
 | [design/basic/testing-and-deploy.md](design/basic/testing-and-deploy.md) | 決定 |
 | [design/basic/design-values.md](design/basic/design-values.md) | 作成（各文書で値が決まるたびに足す） |
 
-design-values.md のうち、機器の名前の上限（MNG-1）は未定のまま。詳細設計で、機器の画面と API の入出力を決めるときに決める。OPN-1 は24時間に決めた（platform-selection.md 実測の結果 4）。
+機器の名前の上限（MNG-1）は詳細設計で30文字に決めた（rules.md 6.6）。OPN-1 は24時間に決めた（platform-selection.md 実測の結果 4）。
 
 ## 決まったこと（要点）
 
