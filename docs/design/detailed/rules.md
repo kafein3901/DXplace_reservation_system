@@ -144,6 +144,7 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 管理者の入力の検証（`lib/`） | ADM-2, USR-5, SEC-3 | 済（6.2） |
 | 利用者の入力の検証（`lib/`） | USR-4〜USR-6 | 一部（名前 USR-5 と、全角・大小のそろえ方は 6.2 で決めた。学籍番号・期生は未） |
 | 管理者の認証・管理者の証明・試行の上限 | ADM-2, SEC-3 | 済（6.3。試行の上限は利用の開始・保守用の API も同じ関数を使う） |
+| 共有された情報の設定・変更 | ADM-3 | 済（判定なし。管理者の証明（6.3 の `checkAdminSession`）を通れば必ず受け付けるので、関数を作らない。値は 6.3 の `newToken`。api.md 8.9） |
 
 ### 6.1 管理者の作成・パスワードの設定し直し（`src/rules/admins.js`。ADM-2）
 
@@ -216,6 +217,7 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | `isTokenFormat(s)` | `lib/cookie.js` | 証明の値の形（43文字の base64url。`A-Z`・`a-z`・`0-9`・`-`・`_`）か。形が違う値はハッシュを求めず、Cookie がないものとして扱う |
 | `adminCookie(value)`・`clearAdminCookie()` | `lib/cookie.js` | `Set-Cookie` の値を作る。`__Host-dxp_admin=値; Max-Age=34560000; Path=/; Secure; HttpOnly; SameSite=Strict`（400日。auth.md 3）。消すときは値を空にして `Max-Age=0` |
 | `equalBytes(a, b)` | `lib/hash.js` | 同じ長さのバイト列を `crypto.subtle.timingSafeEqual` で比べる。長さが違えば偽（PBKDF2 の結果は常に32バイトなので、ふつうは起きない） |
+| `newToken()` | `lib/hash.js` | `{ value, hash }` を返す（`await` が要る）。`value` は `crypto.getRandomValues` で作った32バイトを base64url（`=` なし）にした43文字、`hash` は `value` の UTF-8 のバイト列の SHA-256。管理者の認証の証明（api.md 8.4）、共有された情報の値（api.md 8.9）、利用を始めた証明で同じ部品を使う。`value` は `isTokenFormat` を必ず通る |
 
 テストの観点（ルールの層・部品の層）：
 
@@ -226,6 +228,7 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | ADM-2（`checkAdminSession`） | 解いていない・削除されていない・版が同じ | `null`（`AUTH_REQUIRED`）、`ended_at` がある、管理者が削除されている、版が違う（どれも `AUTH_REVOKED`） |
 | SEC-3（`windowStart`） | 10:09:59.999 と 10:00 が同じ区切り、10:10 は次の区切り（TIM-2 と同じく始まりを含む） | ― |
 | ADM-2（`readCookie`・`isTokenFormat`） | ほかの Cookie と並んでいても取り出せる。43文字の base64url | 42文字・44文字、`=` や `+` を含む値、ヘッダがない |
+| ADM-3（`newToken`） | `value` が43文字で `isTokenFormat` を通る。`hash` が `value` の SHA-256（32バイト）と等しい。2回呼ぶと違う値になる | ― |
 
 ## 7. 共通のテストの観点
 

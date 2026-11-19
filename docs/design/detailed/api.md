@@ -1,6 +1,6 @@
 # API
 
-- 状態：作成中（共通の部分、保守用の API、管理者の認証を決定。残りの API の入出力は、機能ごとの設計で足す）
+- 状態：作成中（共通の部分、保守用の API、管理者の認証、共有された情報の設定を決定。残りの API の入出力は、機能ごとの設計で足す）
 - 日付：2026-11-19
 - 関係する要件：USR-1, USR-2, ADM-2, ADM-3, RSV-21〜RSV-23, RSV-27, VIW-2, VIW-3, SEC-2〜SEC-4, LOG-4, TIM-1, NFR-4, PRE-5, FUT-1
 - 前提：[architecture.md](../basic/architecture.md) 1, 3, 4（Worker は渡すだけ、手順 1〜7）、[screens-and-api.md](../basic/screens-and-api.md) 4〜7（API の一覧、応答の形）、[auth.md](../basic/auth.md) 1, 3, 6, 7（入口の種類、Cookie と Origin、保守用の鍵、試行の制限）、[time-and-concurrency.md](../basic/time-and-concurrency.md) 2, 4（時刻を取る位置、`blockConcurrencyWhile`）、[error-codes.md](error-codes.md)、[schema.md](schema.md) 5（版の適用）
@@ -19,7 +19,7 @@
 | ヘッダ | すべての応答に `Content-Type: application/json; charset=utf-8` と `Cache-Control: no-store`。証明を渡す・延ばす応答には `Set-Cookie`（auth.md 3） |
 
 - `Cache-Control: no-store` を付けるのは、予約状況をいつも最新で返すため（VIW-3）と、名前などの個人の情報をブラウザや途中のキャッシュに残さないため。
-- 例外は `handle` の一番外で受け止めて 500 に変える。`transactionSync` の中で起きた例外は、その前にトランザクションを取り消している（time-and-concurrency.md 4）。`blockConcurrencyWhile` の中では、包んだ処理の中で受け止める（同 4 の注意）。例外の中身は `console.error` に出すが、本文・Cookie・ヘッダの値は出さない（LOG-4, SEC-4）。
+- 例外は `handle` の一番外で受け止めて 500 に変える。`transactionSync` の中で起きた例外は、その前にトランザクションを取り消している（time-and-concurrency.md 4）。`blockConcurrencyWhile` の中では、包んだ処理の中で受け止める（同 4 の注意）。例外の中身は `console.error` に出すが、要求と応答の本文・Cookie・ヘッダの値は出さない（LOG-4, SEC-4。応答の本文には共有された情報の値が入ることがある。8.9）。
 
 ## 2. 要求の形
 
@@ -209,6 +209,7 @@ API を変えるときの決まり：
 | --- | --- | --- |
 | `POST /api/maint/admins`、`POST /api/maint/admins/{id}/reset-password` | 保守用の API（ADM-2） | 済（8.1〜8.3） |
 | `POST /api/admin/login`、`GET /api/admin/me`、`POST /api/admin/logout`、管理者の API に共通の証明の確かめ方 | 管理者の認証（ADM-2） | 済（8.4〜8.8） |
+| `POST /api/admin/shared-info` | 共有された情報の設定・変更（ADM-3） | 済（8.9〜8.10） |
 | screens-and-api.md 5 の一覧の残りすべて | rules.md 6 の表の各機能と、利用の開始・管理者の認証・利用者の入力・予約状況 | 未 |
 
 ### 8.1 `POST /api/maint/admins`（管理者の作成。ADM-2）
@@ -320,7 +321,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 
 処理（すべて `blockConcurrencyWhile` の中。例外は中で受け止めて 500 にする）：
 
-1. 準備：本文を読む。新しい証明の値（ランダムな32バイトを base64url にした43文字）とその SHA-256 を作る。ダミーのソルト（ランダムな16バイト）を作る。
+1. 準備：本文を読む。新しい証明の値とその SHA-256 を `newToken()`（rules.md 6.3。ランダムな32バイトを base64url にした43文字）で作る。ダミーのソルト（ランダムな16バイト）を作る。
 2. `clock()` で現在時刻を取る。
 3. 同期で確かめる。
    - `Origin`（共2）。
@@ -429,6 +430,57 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | LOG-4 | 成功すると `admin_login`、`logout` で `admin_logout` が `actor_admin_id` 付きで1行でき、`detail` は `ip` だけ。`events`・`auth_failures` のどの列にも、パスワード・証明の値・そのハッシュが入っていない |
 | RSV-21 | 開始時刻＋猶予を過ぎた予約済の予約がある台帳で、認証の成功や `me` を呼ぶと無断不使用になる。認証の失敗では変わらない |
 
+### 8.9 `POST /api/admin/shared-info`（共有された情報の設定・変更。ADM-3, SEC-3, SEC-4, LOG-4）
+
+管理者が共有された情報を設定・変更する。最初の設定も変更も同じ操作で行う（ADM-3）。値は台帳が作り、この応答で1回だけ返す（auth.md 2）。経路の表（3.3）では、認証の種類は「管理者」、包むかは「包まない」（ハッシュは SHA-256 だけで、準備で求められる。time-and-concurrency.md 4）。
+
+要求の本文：項目なし。画面は `{}` を送る（8.7 と同じく、共4 を例外にしないため）。
+
+処理：
+
+1. 準備：Cookie の値のハッシュを求める（8.5 の 1）。新しい共有された情報の値とその SHA-256 を `newToken()`（rules.md 6.3）で作る。成功するかどうかにかかわらず、ここで作る（auth.md 3）。
+2. `clock()` で現在時刻を取る。
+3. 共2（`Origin`）→ 共3（8.5 の 2）→ 共4（本文）の順に確かめる。
+4. `transactionSync` の中で、自動の変化を反映し（rules.md 5）、`shared_infos` に1行足し（`hash` は 1 のハッシュ、`created_at` は 2 の時刻）、記録を書く。足した行の `id` が新しい版になる（schema.md 2.6）。
+5. 成功を返す（`Set-Cookie` で管理者の Cookie の期限を延ばす。8.5）。
+
+- **判定はない。** 共3 を通れば必ず受け付ける。`src/rules/` に新しい関数は作らない（rules.md 6 の表）。
+- **確保済みの予約は変えない（ADM-3）。** この API は予約の表に触れない（自動の変化の反映はほかの API と同じく行う）。
+- **管理者の認証は止めない（ADM-3）。** `admin_sessions` に触れない。
+- **利用を始めた端末は版で止まる。** `user_sessions` の行は消さず、書き換えもしない。始めた版が現在の版と違う証明は、利用者の API で `AUTH_REVOKED` になる（auth.md 3）。その確かめ方は利用の開始の機能で決める。
+- **値の扱い（SEC-4）。** 台帳はハッシュだけを保存する。値は応答の本文にだけ入れ、記録・`console` に出さない（1）。応答には、ほかの応答と同じく `Cache-Control: no-store` が付く。応答が届かなかった（通信の断など）ときも行は足されているので、値はもうどこからも取り出せない。管理者はもう一度この操作をする（ADM-3「わからなくなったら設定し直す」）。
+- **URL は画面が作る。** 利用者の画面の URL の後ろに `#k=値` を付ける（auth.md 2）。台帳は利用者の画面のパスを知らなくてよい。QR コードの描き方と、押す前の確かめを置くかは screens.md で決める（影響範囲の事前表示は10章で除かれている）。
+
+応答の `data`：
+
+| 項目 | 内容 |
+| --- | --- |
+| `value` | 新しい共有された情報の値（43文字の base64url） |
+
+版の番号は返さない（画面で使わない。テストは表で確かめる）。
+
+返しうるコード（確かめる順）：`NOT_FOUND_API` → `AUTH_ORIGIN` → `AUTH_REQUIRED` → `AUTH_REVOKED` → `INPUT_BODY`。新しいコードはない。
+
+記録（`events`）：`at` は 2 の時刻、`actor_kind = 'admin'`、`actor_admin_id` は操作した管理者の番号、`kind = 'shared_info_set'`、`admin_id`・`reservation_id`・`device_id`・`user_id` は `NULL`、`detail` は `{"version": 足した行の id}`。値もハッシュも入れない（SEC-4、logging.md 3）。
+
+**同時に押したとき（RSV-23）。** 2人の管理者がほぼ同時に操作すると、1つずつ処理されて2行でき、どちらにも成功と値が返る。後の行が現在の値になるので、先の管理者が表示している QR コードはすでに使えない。要件の範囲では扱わず、残るリスクとする（下の「採らなかった案」）。
+
+### 8.10 台帳の層のテストの観点（共有された情報の設定）
+
+| ID | 確かめること |
+| --- | --- |
+| ADM-3 | 未設定の台帳で呼ぶと `shared_infos` が0行から1行になる。応答の `value` は43文字の base64url で、その SHA-256 が `hash` と等しい |
+| ADM-3 | 2回目を呼ぶと `id` が1つ大きい行が足され、値もハッシュも1回目と違う。1回目の行は残る |
+| ADM-3 | 呼ぶ前後で、予約済・利用中の予約の行（状態・時刻）が変わらない（自動の変化の対象にならない予約で確かめる） |
+| ADM-3 | 呼んだ管理者の Cookie でも、ほかの管理者の Cookie でも、その後の `GET /api/admin/me` が通る。応答に同じ値の `Set-Cookie` が付く |
+| ADM-3 | 古い版で始めた証明が止まること（`AUTH_REVOKED`）は、利用の開始の機能のテストで確かめる |
+| ADM-2 | Cookie がないと `AUTH_REQUIRED`、解いた証明では `AUTH_REVOKED` で、`shared_infos`・`events` に行が増えない |
+| API | `Origin` がないと `AUTH_ORIGIN`。本文が壊れていて証明もないと `AUTH_REQUIRED`（認証が先）。証明が有効で本文が壊れていると `INPUT_BODY`。どれも行が増えない |
+| LOG-4 | 成功すると `events` に `kind = 'shared_info_set'`・`actor_admin_id` 付きの行が1つでき、`detail` は `version` だけで、足した行の `id` と等しい。`events` のどの列にも値とハッシュが入っていない |
+| SEC-4 | 処理の途中で例外が起きたとき、`console.error` の出力に値が含まれない（テストで出力を受け取って確かめる）。行も増えない |
+| RSV-21 | 開始時刻＋猶予を過ぎた予約済の予約がある台帳で呼ぶと、無断不使用になる |
+| RSV-23 | 2つ同時に送ると、どちらも成功して2行でき、2つの値は違う。`id` の大きい行のハッシュが、後に処理された応答の値の SHA-256 と等しい |
+
 ## 採らなかった案
 
 | 案 | 理由 |
@@ -452,3 +504,7 @@ SELECT id, login_id, display_name, deleted_at FROM admins ORDER BY id;
 | `logout` だけ本文を求めない | 共4 の例外が増える。画面は `{}` を送れば足りる（8.7） |
 | 記録の `ip` を `clientKey` でまとめた値にする | 追跡に使うので、細かい値のほうがよい（8.4） |
 | 共3 で断るときに Cookie を消す | 画面は `AUTH_REQUIRED`・`AUTH_REVOKED` で認証の画面に移るので要らない（8.5） |
+| 共有された情報の設定の応答で、利用者の画面の URL まで返す | 台帳が利用者の画面のパスを知ることになる。auth.md 2 で画面が作ると決めている（8.9） |
+| 共有された情報の設定の応答で、版の番号も返す | 画面で使わない（8.9） |
+| 共有された情報の設定で、古い `user_sessions` を無効にする（書き換える・消す） | 版で止める方式（auth.md 3）と二重になる。行を消すのは LOG-5 にも反する（8.9） |
+| 共有された情報の設定がほぼ同時に起きたら、後の操作を断る（直前の版を要求に入れさせるなど） | 要件にない。押した管理者どうしで掲示を確かめれば済む（8.9） |

@@ -16,6 +16,8 @@
 
 **機能ごとの設計の2つ目、管理者の認証を書いた（2026-11-19 に開発者が了承）。** api.md 8.4（`login`。ID がなくてもダミーのソルトで PBKDF2 を1回計算して時間をそろえる、形式の誤りも `AUTH_ADMIN_FAILED` で数える、有効な Cookie があってもふつうに処理する、成功で失敗の数を戻さない、記録の `ip` は生の値）・8.5（管理者の API に共通の証明の確かめ方、共3 を通った応答はすべて Cookie を延ばす）・8.6（`me`）・8.7（`logout`。本文 `{}`）・8.8（台帳の層のテスト）、error-codes.md 3.2 の `AUTH_ADMIN_FAILED`、rules.md 6.3（`checkAttemptLimit`・`checkAdminLogin`・`checkAdminSession` と `lib/` の `windowStart`・`readCookie`・`isTokenFormat`・`adminCookie`・`clearAdminCookie`・`equalBytes`）。保守用の API の上限も `checkAttemptLimit` を使う形にした（api.md 6.1）。
 
+**機能ごとの設計の3つ目、共有された情報の設定を書いた（2026-11-19 に開発者が了承）。** api.md 8.9（`POST /api/admin/shared-info`。本文 `{}`、包まない、値と SHA-256 は準備で `newToken()` で作る、`shared_infos` に1行足して `id` が版、応答は `{ value }` だけで URL は画面が作る、記録は `shared_info_set` の `version`、予約・管理者の証明・`user_sessions` に触れない、同時に押すと両方成功して後が勝つのは残るリスク）・8.10（台帳の層のテスト）、rules.md 6 の表（判定なしで関数を作らない）と 6.3 の `newToken`。8.4 の証明の値も `newToken()` で作る書き方にそろえ、api.md 1 の `console.error` に応答の本文も出さないことを足した。新しいコードはない。
+
 **機能を縦に切る順を決めた（2026-11-19 に開発者が決定）。** 実際に使う順に進める：保守用の API（管理者の作成・パスワードの設定し直し）→ 管理者の認証 → 共有された情報の設定 → 利用の開始 → 利用者の入力 → 機器 → 予約の操作。理由：何にも頼らないものから積むので、各段を手元の `wrangler dev` で前の段の結果を使って手で確かめられ、食い違いをその段で設計に戻せる。PBKDF2 と処理全体を `blockConcurrencyWhile` で包む経路（architecture.md 3 の唯一の例外）を、画面のない最初の段で片付けられる。採らなかった案：利用の開始から利用者側を先に進め、管理者側を後に回す。予約のルールには早く着く（確保が4段目、こちらは7段目）が、共有された情報を作る手段が管理者の画面しかないので、管理者側ができるまで利用者の画面を手で通せない。
 
 ## 詳細設計の方針（2026-11-19 に開発者が決定）
@@ -65,7 +67,8 @@
 
 ### 次の作業
 
-1. 3つ目の機能「共有された情報の設定（`POST /api/admin/shared-info`。ADM-3, SEC-3, SEC-4, LOG-4）」の詳細設計（実装はしない）。順は上の「いまの段階」。まず設計を示して了承を得る：本文の項目（なしで `{}` か）、値の作り方（ランダムな32バイトを base64url の43文字。準備で作り、SHA-256 も準備で求める。auth.md 2, 4）、`shared_infos` への行の足し方と版（`id` が版。schema.md 2.6）、応答で値を1回だけ返すこと（`Cache-Control: no-store`。値を記録やログに出さない）、記録（`shared_info_set` の `version`）、確保済みの予約は変えないこと（ADM-3）、管理者の認証を止めないこと、管理者の API の共通の流れ（api.md 8.5）の使い方、画面が作る URL（利用者の画面の URL に `#k=値`）と QR コードのライブラリ（qrcode-generator。画面の設計は screens.md で）。利用を始めた証明が版で止まることの確かめ方は、4つ目の機能（利用の開始）で決める。機能ごとに、error-codes.md 3 にコードを、api.md 8 に入出力を足す。機器の機能の設計では、名前の上限（MNG-1。design-values.md に足す）と名前の比べ方（全角・大小。schema.md 2.2）も決める。
+1. 4つ目の機能「利用の開始（`POST /api/session`、`GET /api/session`。USR-2, ADM-3, SEC-3, SEC-4）」の詳細設計（実装はしない）。順は上の「いまの段階」。まず設計を示して了承を得る：本文の項目（`k` など）と形の確かめ方（`isTokenFormat` を使うか、形の誤りも失敗として数えるか）、確かめる順（api.md 4 の例外。上限 → 本文 → 値）、共有された情報が未設定のときのコード（`AUTH_SHARED_INFO_*`。error-codes.md 3.2）と失敗として数えるか、値が違うときのコードと数え方（`entry = 'shared_info'`、上限200）、すでに有効な証明があるときは値を確かめずに成功を返すこと（auth.md 2）、`user_sessions` への行の足し方と `Set-Cookie`（`__Host-dxp_user`。`userCookie` を `lib/cookie.js` に足す）、`GET /api/session` の応答（証明が有効か、共3 で断らない）、利用者の API に共通の証明の確かめ方（版が違えば `AUTH_REVOKED`。8.5 と同じ形で `checkUserSession` を rules.md 6.3 に足す）、記録（利用の開始の成功は記録しない。logging.md 2）、台帳の層のテスト（api.md 8.10 から回した「古い版の証明は止まる」を含む）。機能ごとに、error-codes.md 3 にコードを、api.md 8 に入出力を足す。
+   - screens.md に回すこと（共有された情報の設定の設計で出たもの）：QR コードのライブラリ（qrcode-generator）の版の固定と描き方、押す前に「変更しますか」の確かめを置くか（影響範囲の事前表示は10章で除かれている）、押している間にボタンを止めて二重に送らないこと、利用者の画面の URL の作り方（`location.origin` ＋ `/` ＋ `#k=値`）。機器の機能の設計では、名前の上限（MNG-1。design-values.md に足す）と名前の比べ方（全角・大小。schema.md 2.2）も決める。
 
 実装の段階（上の「進め方」3）に回すこと：土台（`package.json`・`.nvmrc`・`wrangler.jsonc`・Vitest の設定。Node は手元が v26.13.0、wrangler は spike で 4.163.0 を使った）、台帳の骨組み（api.md 3 の経路の表と共通の流れ、1 の応答、4 の共通の確かめる順）と schema.md 5 の版の適用。api.md 3.4 と schema.md 5.4 の基盤の機能は spike で確かめた（2026-11-19。下の「schema.md で決めた持ち越し事項」）ので、実装では台帳の層のテストに書くだけでよい。GitHub Actions は、実装の段階ではテストのジョブだけを作り、デプロイのジョブは結合テストの後に作る（Cloudflare の API トークンは学校のアカウントが作る。PRE-11 は未定）。
 
