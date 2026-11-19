@@ -24,7 +24,7 @@ DXプレイス予約システム v0.1.0（最小構成）。学校のDXプレイ
 
 ## 技術スタック
 
-Cloudflare Workers 無料プラン（カード登録なし）、Durable Objects（SQLite）、静的ファイルの画面（HTML / CSS / JavaScript。フレームワークもビルドも使わない）、Vitest（`@cloudflare/vitest-pool-workers`）、wrangler、GitHub Actions。選定の理由は `docs/design/basic/platform-selection.md`。
+Cloudflare Workers 無料プラン（カード登録なし）、Durable Objects（SQLite）、静的ファイルの画面（HTML / CSS / JavaScript。フレームワークもビルドも使わない）、Vitest（`@cloudflare/vitest-plugin`）、wrangler、GitHub Actions。選定の理由は `docs/design/basic/platform-selection.md`。
 
 データはすべて Durable Object の SQLite に置く（基盤の実測で決定。platform-selection.md「実測の結果」1）。
 

@@ -14,7 +14,7 @@
 | 画面 | Workers が配る静的ファイル（HTML / CSS / JavaScript） |
 | データと排他 | Durable Objects（SQLite）。すべてのデータをここに置く（実測の結果 1） |
 | 定期処理 | Cron Triggers（FUT-3 の控えなど。v0.1.0 では作らない） |
-| テストとデプロイ | Vitest（`@cloudflare/vitest-pool-workers`）、wrangler、GitHub Actions |
+| テストとデプロイ | Vitest（`@cloudflare/vitest-plugin`）、wrangler、GitHub Actions |
 
 ## 前提
 
@@ -71,7 +71,9 @@
 | --- | --- | --- |
 | Node.js / npm | wrangler と Vitest を動かす | なし（Cloudflare の開発に必須） |
 | wrangler | 手元での実行とデプロイ | 管理画面に手でアップロードする（NFR-4 の自動化ができない） |
-| Vitest + `@cloudflare/vitest-pool-workers` | 本番と同じ実行環境で、DO を含めてテストする | Node 組み込みの `node:test`（DO を動かせない） |
+| Vitest + `@cloudflare/vitest-plugin` | 本番と同じ実行環境で、DO を含めてテストする | Node 組み込みの `node:test`（DO を動かせない） |
+
+`@cloudflare/vitest-plugin` は、もとは `@cloudflare/vitest-pool-workers` という名前だった。前の名前のほうは非推奨になり、更新が止まった。依存のパッケージ（`undici`・`zod`）に `npm audit` の指摘も残っていたので、2026-11-19 に新しい名前のほうへ移した（開発者が了承）。使い方（`cloudflareTest`、`cloudflare:test` の `runInDurableObject`）は変わらない。
 
 ## 実測の結果
 

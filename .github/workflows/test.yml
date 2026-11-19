@@ -1,0 +1,18 @@
+# テストのジョブ（docs/design/basic/testing-and-deploy.md 2）
+# どのブランチの push でも、プルリクエストでも動く。デプロイのジョブは結合テストの後に足す
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - run: npm test

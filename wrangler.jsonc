@@ -1,0 +1,14 @@
+// Worker の設定（docs/design/basic/testing-and-deploy.md 3・4、docs/design/detailed/api.md 3）
+// 有料プランや従量課金を有効にする設定は入れない（PRE-2）
+{
+  "name": "dxplace-reservation-system",
+  "main": "src/index.js",
+  // 基盤の更新で動きが変わらないように固定する。上げるときはテストを通してから。
+  // 2026-08-15 は最初に決めた日付。上げるのは別の作業にする
+  "compatibility_date": "2026-08-15",
+  "durable_objects": {
+    "bindings": [{ "name": "LEDGER", "class_name": "Ledger" }]
+  },
+  // 無料プランでは SQLite を使う Durable Object だけが作れる
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Ledger"] }]
+}

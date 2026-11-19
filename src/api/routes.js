@@ -1,0 +1,41 @@
+// 経路の表（docs/design/detailed/api.md 3.3）
+//
+// 1行が1つの API。各行は次の形：
+//   method：'GET' か 'POST'
+//   path：'/api/reservations/{id}/cancel' など。{id} は正の整数（先頭が0でない数字の並び）に当たる（api.md 2）
+//   auth：認証の種類（auth.md 1）。'public'（誰でも）、'user'（利用者）、'admin'（管理者）、'maint'（保守）
+//   wrap：処理全体を blockConcurrencyWhile で包むか（PBKDF2 を使う操作だけ。time-and-concurrency.md 4）
+//   handler：src/api/ の関数。共通の流れ（ledger.js の handle）の後の部分だけを書く
+//
+// API は機能ごとの実装で足す。
+export const ROUTES = [];
+
+const ID_PATTERN = /^[1-9][0-9]*$/;
+
+// メソッドとパスに当たる行を引く。なければ null（NOT_FOUND_API）。
+// 当たれば { route, params }。params.id はパスの {id} を数値にしたもの
+export function findRoute(routes, method, pathname) {
+  const segments = pathname.split('/');
+  for (const route of routes) {
+    if (route.method !== method) continue;
+    const params = matchPath(route.path.split('/'), segments);
+    if (params !== null) return { route, params };
+  }
+  return null;
+}
+
+function matchPath(patternSegments, segments) {
+  if (patternSegments.length !== segments.length) return null;
+  const params = {};
+  for (let i = 0; i < segments.length; i++) {
+    const pattern = patternSegments[i];
+    const segment = segments[i];
+    if (pattern === '{id}') {
+      if (!ID_PATTERN.test(segment)) return null;
+      params.id = Number(segment);
+    } else if (pattern !== segment) {
+      return null;
+    }
+  }
+  return params;
+}

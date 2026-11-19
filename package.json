@@ -1,0 +1,18 @@
+{
+  "name": "dxplace-reservation-system",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "26.13.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.8.5",
+    "vitest": "4.1.12",
+    "wrangler": "4.165.0"
+  }
+}

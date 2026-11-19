@@ -3,7 +3,7 @@
 - 状態：決定
 - 日付：2026-11-16
 - 関係する要件：NFR-4, RSV-27, PRE-2, PRE-5, PRE-11, NFR-1, NFR-2
-- 前提：[platform-selection.md](platform-selection.md)（Vitest、`@cloudflare/vitest-pool-workers`、wrangler、GitHub Actions）、[architecture.md](architecture.md) 4（コードの分け方）、[time-and-concurrency.md](time-and-concurrency.md) 5（テストでの時刻の差し替え）
+- 前提：[platform-selection.md](platform-selection.md)（Vitest、`@cloudflare/vitest-plugin`、wrangler、GitHub Actions）、[architecture.md](architecture.md) 4（コードの分け方）、[time-and-concurrency.md](time-and-concurrency.md) 5（テストでの時刻の差し替え）
 
 ## 決定
 
@@ -18,7 +18,7 @@
 - 数が最も多くなるのはルールの層。速く、時刻を自由に選べ、どのルールで断ったかをコードで確かめられる（RSV-27）。
 - 台帳の層は、ルールの層で確かめたことを繰り返さない。つながり（認証→反映→判定→書き込み→記録）が正しいかを、代表的な操作で確かめる。
 - 同時の操作（RSV-23）は、複数のリクエストを待たずに続けて送り（`Promise.all`）、すべての応答が返った後の表の中身が RSV-23 の挙げる条件に反しないことを確かめる。対象は、重なる確保（RSV-3）、件数の上限（RSV-4）、利用中の機器の削除（MNG-2）、最後の管理者の削除（ADM-2）、機器の名前と管理者の ID の重複（MNG-1, ADM-2）。どちらが通るかは決めず、「通るのは一方だけ」を確かめる。
-- テストはそれぞれ空の台帳から始める（`@cloudflare/vitest-pool-workers` はテストごとに保存場所を分ける）。前のテストの結果に左右されない。
+- テストはそれぞれ空の台帳から始める（台帳の層のテストは、テストごとに `newUniqueId()` で新しい台帳を作る）。前のテストの結果に左右されない。
 
 #### テストの名前
 

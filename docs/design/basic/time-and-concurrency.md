@@ -82,7 +82,7 @@ PBKDF2 は Web Crypto の非同期 API でしか計算できず、`await` が要
 | テストの対象 | 時刻の渡し方 |
 | --- | --- |
 | `src/rules/` | 関数の引数に任意の時刻を渡す。DB も DO も要らない |
-| 台帳を通した動き（自動の変化の反映、記録、排他） | `@cloudflare/vitest-pool-workers` の `runInDurableObject` で台帳の中に入り、`handle(request, clock)` を任意の時刻を返す時計で呼ぶ |
+| 台帳を通した動き（自動の変化の反映、記録、排他） | `@cloudflare/vitest-plugin` の `runInDurableObject` で台帳の中に入り、`handle(request, clock)` を任意の時刻を返す時計で呼ぶ |
 
 本番の台帳に、時刻を差し替えるための入口（テスト用の API など）は作らない。外から時刻を操れると、ルールを回避できてしまう（RSV-24）。
 
