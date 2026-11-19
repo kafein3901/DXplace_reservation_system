@@ -77,7 +77,7 @@ store は数値の履歴を全件渡す（変更のたびに1行なので小さ�
 | 2 | 対象の存在・本人のものか | `NOT_FOUND_` | 予約、機器、利用者 |
 | 3 | 状態 | `STATE_` | 予約済でない（RSV-8）、利用中でない（RSV-18） |
 | 4 | 時刻の条件 | `RULE_` | 開始は `nowMin` 以降・終了は `nowMin` より後（TIM-6）、変更前の時刻になる前か（RSV-11） |
-| 5 | 終了 > 開始 | error-codes.md で決める | TIM-7, RSV-5 |
+| 5 | 終了 > 開始 | `RULE_TIME_ORDER`（error-codes.md） | TIM-7, RSV-5 |
 | 6 | 長さ | `RULE_` | RSV-6, RSV-12 |
 | 7 | 件数 | `RULE_` | RSV-4 |
 | 8 | 重なり | `RULE_` | RSV-3、RSV-15（開始時刻までに他の予約がない）、RSV-20 |
