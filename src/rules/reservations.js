@@ -1,4 +1,4 @@
-// 予約の操作のルール（docs/design/detailed/rules.md 6.10〜。RSV-2〜RSV-12, RSV-17, RSV-20, TIM-4, TIM-6, TIM-7）
+// 予約の操作のルール（docs/design/detailed/rules.md 6.10〜6.15。RSV-2〜RSV-20, TIM-4, TIM-6, TIM-7）
 // 時刻はミリ秒。nowMin は秒を切り捨てた現在時刻。データは自動の変化を反映した後のもの（rules.md 5.3）
 import { MINUTE_MS } from '../lib/time.js';
 import { checkDeviceActive } from './devices.js';
@@ -156,4 +156,40 @@ export function checkChange({ user, reservation, start, end, nowMin, settings, d
   const refusal = firstRefusal(steps);
   if (refusal !== null) return refusal;
   return { ok: true, action: start === r.start_at && end === r.end_at ? 'unchanged' : 'change' };
+}
+
+// 段 6：前倒しの長さが上限以下（RSV-6, RSV-15）。条件は checkLength と同じで、コードだけを分ける（rules.md 6.14）
+export function checkBeginLength(nowMin, end, limitMinutes) {
+  return checkLength(nowMin, end, limitMinutes).ok ? OK : { ok: false, code: 'RULE_BEGIN_LENGTH' };
+}
+
+// 段 8：[nowMin, 開始) に、その予約を除く確保済みの予約がない（RSV-15, RSV-3, TIM-2）。
+// 条件は checkOverlap と同じで、コードだけを分ける（rules.md 6.14）
+export function checkBeginOverlap(deviceActive, nowMin, start, excludeId) {
+  return checkOverlap(deviceActive, nowMin, start, excludeId).ok ? OK : { ok: false, code: 'RULE_BEGIN_OVERLAP' };
+}
+
+// 利用開始（rules.md 6.14。RSV-13〜RSV-16, RSV-6）。段 1 は api/ が先に確かめる。
+// 段 4・5 はない（反映した後の予約済は必ず猶予のうち。RSV-13, RSV-16）。段 7 はない（件数は変わらない）。
+// 前倒し（nowMin < 開始）のときだけ段 6・8 を確かめ、開始時刻を nowMin にする（RSV-15, TIM-4）。
+// 前倒しでなければ時刻を変えない（上限を下げた後も、確保済みの予約は利用開始できる。RSV-25）
+export function checkBegin({ user, reservation, nowMin, settings, deviceActive }) {
+  const r = reservation;
+  const early = () => r.start_at > nowMin;
+  const steps = [
+    () => checkOwnReservation(user, r),
+    () => (r.status === 'reserved' ? OK : { ok: false, code: 'STATE_NOT_RESERVED' }),
+    () => (early() ? checkBeginLength(nowMin, r.end_at, settingAt(settings, 'max_length_minutes', nowMin)) : OK),
+    () => (early() ? checkBeginOverlap(deviceActive, nowMin, r.start_at, r.id) : OK),
+  ];
+  return firstRefusal(steps) ?? { ok: true, start: early() ? nowMin : r.start_at };
+}
+
+// 利用終了（rules.md 6.15。RSV-18, RSV-19, TIM-7）。段 1 は api/ が先に確かめる。段 4〜8 はない。
+// 予約なしの利用で始めたものも同じ（RSV-17）。開始と同じ分に終えると長さ0になり、それを認める（TIM-7）
+export function checkFinish({ user, reservation, nowMin }) {
+  const own = checkOwnReservation(user, reservation);
+  if (!own.ok) return own;
+  if (reservation.status !== 'in_use') return { ok: false, code: 'STATE_NOT_IN_USE' };
+  return { ok: true, end: nowMin };
 }

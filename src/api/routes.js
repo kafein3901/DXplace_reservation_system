@@ -26,9 +26,11 @@ import {
 import { changeUser, loginUser, registerUser } from './me.js';
 import { createAdminByMaint, resetAdminPasswordByMaint } from './maint.js';
 import {
+  beginReservation,
   cancelReservation,
   changeReservation,
   createReservation,
+  finishReservation,
   listMyReservations,
   startWalkIn,
 } from './reservations.js';
@@ -122,6 +124,21 @@ export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
       auth: 'user',
       wrap: false,
       handler: changeReservation,
+    },
+    // 利用開始・利用終了（api.md 8.34・8.35。RSV-13〜RSV-19）
+    {
+      method: 'POST',
+      path: '/api/reservations/{id}/begin',
+      auth: 'user',
+      wrap: false,
+      handler: beginReservation,
+    },
+    {
+      method: 'POST',
+      path: '/api/reservations/{id}/finish',
+      auth: 'user',
+      wrap: false,
+      handler: finishReservation,
     },
   ];
 }

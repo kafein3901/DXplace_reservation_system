@@ -106,3 +106,14 @@ export function findReservation(sql, id) {
 export function updateReservationTimes(sql, id, startAt, endAt) {
   sql.exec('UPDATE reservations SET start_at = ?, end_at = ? WHERE id = ?', startAt, endAt, id);
 }
+
+// 利用開始。状態を in_use にし、開始時刻を rules が返した値にする（前倒しでなければ同じ値）。
+// 終了・原因・予約なしの利用か・機器は変えない（api.md 8.34）
+export function updateReservationBegin(sql, id, startAt) {
+  sql.exec("UPDATE reservations SET status = 'in_use', start_at = ? WHERE id = ?", startAt, id);
+}
+
+// 利用終了。状態を finished にし、終了時刻を nowMin にする。原因は NULL のまま（api.md 8.35）
+export function updateReservationFinish(sql, id, endAt) {
+  sql.exec("UPDATE reservations SET status = 'finished', end_at = ? WHERE id = ?", endAt, id);
+}

@@ -1,11 +1,15 @@
-// 確保・予約なしの利用・自分の予約・取消・時間帯の変更（rules.md 6.10〜6.13）。時刻は nowMin = 10:00、上限は初期値（3件、1440分）
+// 確保・予約なしの利用・自分の予約・取消・時間帯の変更・利用開始・利用終了（rules.md 6.10〜6.15）。時刻は nowMin = 10:00、上限は初期値（3件、1440分）
 import { describe, expect, test } from 'vitest';
 import {
+  checkBegin,
+  checkBeginLength,
+  checkBeginOverlap,
   checkCancel,
   checkChange,
   checkChangeLength,
   checkCount,
   checkEndNotPast,
+  checkFinish,
   checkLength,
   checkMyReservations,
   checkOverlap,
@@ -612,6 +616,201 @@ describe('RSV-9 時間帯の変更（checkChange）', () => {
       const reservation = r({ start: T(11), end: T(12) });
       const others = [r({ start: T(12), end: T(13) })];
       expect(change({ reservation, end: T(11) + 1441 * MIN, others }).code).toBe('RULE_LENGTH');
+    });
+  });
+});
+
+describe('RSV-6 前倒しの長さ（checkBeginLength）', () => {
+  test('RSV-6 nowMin から終了まで 1440分ちょうどは受け付ける', () => {
+    expect(checkBeginLength(NOW, NOW + 1440 * MIN, 1440)).toEqual({ ok: true });
+  });
+
+  test('RSV-6 1441分は RULE_BEGIN_LENGTH（RULE_LENGTH ではない）', () => {
+    expect(checkBeginLength(NOW, NOW + 1441 * MIN, 1440)).toEqual({ ok: false, code: 'RULE_BEGIN_LENGTH' });
+  });
+});
+
+describe('RSV-15 前倒しの重なり（checkBeginOverlap。TIM-2）', () => {
+  test('RSV-15 [nowMin, 開始) に重なる予約がなければ受け付ける。excludeId の予約は除く', () => {
+    const self = r({ id: 1, start: T(10, 30), end: T(11) });
+    const before = r({ start: T(9), end: T(10) });
+    expect(checkBeginOverlap([self, before], NOW, T(10, 30), 1)).toEqual({ ok: true });
+  });
+
+  test('RSV-15 [10:29, 10:30) に対して開始 10:30 は RULE_BEGIN_OVERLAP（1分でも重なる）', () => {
+    const other = r({ start: T(10, 29), end: T(10, 30) });
+    expect(checkBeginOverlap([other], NOW, T(10, 30), 1)).toEqual({ ok: false, code: 'RULE_BEGIN_OVERLAP' });
+  });
+});
+
+describe('RSV-14 利用開始（checkBegin）', () => {
+  const USER = { id: 1 };
+  const begin = ({ user = USER, reservation, others = [], settings = SETTINGS } = {}) =>
+    checkBegin({
+      user,
+      reservation,
+      nowMin: NOW,
+      settings,
+      deviceActive: reservation === null ? others : [reservation, ...others],
+    });
+  const limit60 = [...SETTINGS, { id: 4, key: 'max_length_minutes', value: 60, effective_at: NOW }];
+
+  test('RSV-14 本人の予約済 [10:00, 11:00)（開始ちょうど）は受け付け、start は 10:00', () => {
+    expect(begin({ reservation: r({ start: T(10), end: T(11) }) })).toEqual({ ok: true, start: T(10) });
+  });
+
+  test('RSV-13 [9:50, 11:00)（猶予のうち）は受け付け、start は 9:50 のまま', () => {
+    expect(begin({ reservation: r({ start: T(9, 50), end: T(11) }) })).toEqual({ ok: true, start: T(9, 50) });
+  });
+
+  test('RSV-16 猶予より短い [9:55, 10:05) を 10:00 に利用開始できる', () => {
+    expect(begin({ reservation: r({ start: T(9, 55), end: T(10, 5) }) })).toEqual({ ok: true, start: T(9, 55) });
+  });
+
+  test('RSV-14 user が null なら NOT_FOUND_USER', () => {
+    expect(begin({ user: null, reservation: r() }).code).toBe('NOT_FOUND_USER');
+  });
+
+  test.each([
+    ['予約が null', null],
+    ['他の利用者の予約', { ...r(), user_id: 2 }],
+  ])('RSV-14 %sなら NOT_FOUND_RESERVATION', (_label, reservation) => {
+    expect(begin({ reservation }).code).toBe('NOT_FOUND_RESERVATION');
+  });
+
+  test.each([
+    ['in_use', 0],
+    ['in_use', 1],
+    ...PAST_STATES.map((status) => [status, 0]),
+  ])('RSV-14 %s（walk_in = %i）の予約は STATE_NOT_RESERVED', (status, walkIn) => {
+    expect(begin({ reservation: r({ start: T(9, 50), status, walkIn }) })).toEqual({
+      ok: false,
+      code: 'STATE_NOT_RESERVED',
+    });
+  });
+
+  describe('RSV-15 前倒し', () => {
+    test('RSV-15 予約済 [10:30, 11:00) は受け付け、start は nowMin', () => {
+      expect(begin({ reservation: r({ start: T(10, 30), end: T(11) }) })).toEqual({ ok: true, start: NOW });
+    });
+
+    test('RSV-22 既存 [9:00, 10:00)（ちょうど nowMin に終わる）があっても受け付ける', () => {
+      const others = [r({ start: T(9), end: T(10), status: 'in_use' })];
+      expect(begin({ reservation: r({ start: T(10, 30), end: T(11) }), others }).ok).toBe(true);
+    });
+
+    test.each(PAST_STATES)('RSV-15 既存 [10:00, 10:30) が %s なら受け付ける', (status) => {
+      const others = [r({ start: T(10), end: T(10, 30), status })];
+      expect(begin({ reservation: r({ start: T(10, 30), end: T(11) }), others }).ok).toBe(true);
+    });
+
+    test('RSV-15 既存 [10:00, 10:30) が別の機器なら受け付ける', () => {
+      const reservation = r({ start: T(10, 30), end: T(11) });
+      const result = checkBegin({
+        user: USER,
+        reservation,
+        nowMin: NOW,
+        settings: SETTINGS,
+        deviceActive: [reservation],
+      });
+      expect(result.ok).toBe(true);
+    });
+
+    test.each([
+      ['[10:00, 10:30) の予約済', T(10), T(10, 30), 'reserved'],
+      ['[10:10, 10:20) の予約済', T(10, 10), T(10, 20), 'reserved'],
+      ['[9:00, 10:15) の利用中', T(9), T(10, 15), 'in_use'],
+    ])('RSV-15 既存 %s があると RULE_BEGIN_OVERLAP（同じ人の予約でも断る）', (_label, start, end, status) => {
+      const others = [r({ start, end, status })];
+      expect(begin({ reservation: r({ start: T(10, 30), end: T(11) }), others })).toEqual({
+        ok: false,
+        code: 'RULE_BEGIN_OVERLAP',
+      });
+    });
+
+    test('RSV-6 [10:30, 翌 10:00) の前倒し（1440分ちょうど）は受け付ける', () => {
+      expect(begin({ reservation: r({ start: T(10, 30), end: NOW + 1440 * MIN }) }).ok).toBe(true);
+    });
+
+    test('RSV-6 [10:30, 翌 10:01) の前倒し（1441分）は RULE_BEGIN_LENGTH', () => {
+      expect(begin({ reservation: r({ start: T(10, 30), end: NOW + 1441 * MIN }) }).code).toBe('RULE_BEGIN_LENGTH');
+    });
+
+    test('RSV-6 上限を 60 に変えた履歴で [10:30, 11:01) の前倒しは RULE_BEGIN_LENGTH', () => {
+      const reservation = r({ start: T(10, 30), end: T(11, 1) });
+      expect(begin({ reservation, settings: limit60 }).code).toBe('RULE_BEGIN_LENGTH');
+    });
+  });
+
+  test('RSV-25 上限を 60 に変えた履歴で、確保済みの [10:00, 12:00) を開始ちょうどに利用開始できる', () => {
+    expect(begin({ reservation: r({ start: T(10), end: T(12) }), settings: limit60 })).toEqual({
+      ok: true,
+      start: T(10),
+    });
+  });
+
+  describe('RSV-27 確かめる順', () => {
+    test('RSV-27 user が null で予約も null なら NOT_FOUND_USER', () => {
+      expect(begin({ user: null, reservation: null }).code).toBe('NOT_FOUND_USER');
+    });
+
+    test('RSV-27 他の利用者の利用中の予約は NOT_FOUND_RESERVATION', () => {
+      expect(begin({ reservation: { ...r({ status: 'in_use' }), user_id: 2 } }).code).toBe('NOT_FOUND_RESERVATION');
+    });
+
+    test('RSV-27 本人の利用中で、前倒しなら重なる既存があっても STATE_NOT_RESERVED', () => {
+      const reservation = r({ start: T(10, 30), end: T(11), status: 'in_use' });
+      const others = [r({ start: T(10), end: T(10, 30) })];
+      expect(begin({ reservation, others }).code).toBe('STATE_NOT_RESERVED');
+    });
+
+    test('RSV-27 長さ超えかつ重なりなら RULE_BEGIN_LENGTH', () => {
+      const reservation = r({ start: T(10, 30), end: NOW + 1441 * MIN });
+      const others = [r({ start: T(10), end: T(10, 30) })];
+      expect(begin({ reservation, others }).code).toBe('RULE_BEGIN_LENGTH');
+    });
+  });
+});
+
+describe('RSV-18 利用終了（checkFinish）', () => {
+  const USER = { id: 1 };
+  const finish = ({ user = USER, reservation }) => checkFinish({ user, reservation, nowMin: NOW });
+
+  test('RSV-18 本人の利用中 [9:00, 11:00) は受け付け、end は 10:00', () => {
+    expect(finish({ reservation: r({ start: T(9), end: T(11), status: 'in_use' }) })).toEqual({ ok: true, end: NOW });
+  });
+
+  test('RSV-17 予約なしの利用で始めたもの（walk_in = 1）も受け付ける', () => {
+    const reservation = r({ start: T(9), end: T(11), status: 'in_use', walkIn: 1 });
+    expect(finish({ reservation })).toEqual({ ok: true, end: NOW });
+  });
+
+  test('TIM-7 同じ分に始めた利用中 [10:00, 11:00) は end が 10:00（長さ0）', () => {
+    expect(finish({ reservation: r({ start: T(10), end: T(11), status: 'in_use' }) })).toEqual({ ok: true, end: T(10) });
+  });
+
+  test('RSV-18 user が null なら NOT_FOUND_USER', () => {
+    expect(finish({ user: null, reservation: r({ status: 'in_use' }) }).code).toBe('NOT_FOUND_USER');
+  });
+
+  test.each([
+    ['予約が null', null],
+    ['他の利用者の予約', { ...r({ status: 'in_use' }), user_id: 2 }],
+  ])('RSV-18 %sなら NOT_FOUND_RESERVATION', (_label, reservation) => {
+    expect(finish({ reservation }).code).toBe('NOT_FOUND_RESERVATION');
+  });
+
+  test.each(['reserved', ...PAST_STATES])('RSV-18 %s の予約は STATE_NOT_IN_USE', (status) => {
+    expect(finish({ reservation: r({ start: T(9, 50), status }) })).toEqual({ ok: false, code: 'STATE_NOT_IN_USE' });
+  });
+
+  describe('RSV-27 確かめる順', () => {
+    test('RSV-27 user が null で予約も null なら NOT_FOUND_USER', () => {
+      expect(finish({ user: null, reservation: null }).code).toBe('NOT_FOUND_USER');
+    });
+
+    test('RSV-27 他の利用者の終了済みの予約は NOT_FOUND_RESERVATION（STATE_ にならない）', () => {
+      expect(finish({ reservation: { ...r({ status: 'finished' }), user_id: 2 } }).code).toBe('NOT_FOUND_RESERVATION');
     });
   });
 });

@@ -372,11 +372,7 @@ function actionButton(label, onClick) {
   const button = document.createElement('button');
   button.type = 'button';
   button.textContent = label;
-  if (onClick === null) {
-    button.disabled = true; // 予約の操作⑤の実装まで押せない
-  } else {
-    button.addEventListener('click', () => onClick(button));
-  }
+  button.addEventListener('click', () => onClick(button));
   return button;
 }
 
@@ -390,12 +386,16 @@ function mineRow(reservation) {
   item.append(text);
   if (reservation.status === 'reserved') {
     item.append(
-      actionButton('取消', (button) => cancelMine(reservation, button)),
+      actionButton('取消', (button) => operateMine(reservation, button, MINE_OPERATIONS.cancel)),
       actionButton('時間帯の変更', () => showRetimeForm(reservation)),
-      actionButton('利用開始', null),
+      // 開始時刻より前でも出す。前倒しできるかは台帳に任せる（RSV-15, RSV-24）
+      actionButton('利用開始', (button) => operateMine(reservation, button, MINE_OPERATIONS.begin)),
     );
   } else if (reservation.status === 'in_use') {
-    item.append(actionButton('時間帯の変更', () => showRetimeForm(reservation)), actionButton('利用終了', null));
+    item.append(
+      actionButton('時間帯の変更', () => showRetimeForm(reservation)),
+      actionButton('利用終了', (button) => operateMine(reservation, button, MINE_OPERATIONS.finish)),
+    );
   }
   return item;
 }
@@ -403,15 +403,23 @@ function mineRow(reservation) {
 // 予約の操作のコードごとの動き（screens.md 3.7）：表示が古いので、文を出したうえで一覧を取り直す
 const MINE_STALE = new Set(['NOT_FOUND_RESERVATION', 'STATE_NOT_RESERVED', 'STATE_NOT_ACTIVE', 'STATE_NOT_IN_USE']);
 
-// 取消（api.md 8.30。RSV-8）。取り消せない操作なので確かめる（screens.md 2.7）
-async function cancelMine(reservation, button) {
-  if (!confirm('この予約を取り消しますか？')) return;
+// 行のボタンの操作（screens.md 3.7）。confirm は取り消せない操作だけ（screens.md 2.7）。
+// 取消は api.md 8.30（RSV-8）、利用開始は 8.34（RSV-14, RSV-15）、利用終了は 8.35（RSV-18）
+const MINE_OPERATIONS = {
+  cancel: { action: 'cancel', confirm: 'この予約を取り消しますか？', done: '取り消しました。' },
+  begin: { action: 'begin', confirm: null, done: '利用を開始しました。' },
+  finish: { action: 'finish', confirm: '利用を終了しますか？', done: '利用を終了しました。' },
+};
+
+// 本文は識別の組だけ。成功したら文を出して一覧を取り直す。予約状況は次に出したときに取り直される（3.1）
+async function operateMine(reservation, button, operation) {
+  if (operation.confirm !== null && !confirm(operation.confirm)) return;
   setMessage('mine', '', null);
   if (user === null) return showError('NOT_FOUND_USER');
   button.disabled = true;
   let result;
   try {
-    result = await callApi('POST', `/api/reservations/${reservation.id}/cancel`, {
+    result = await callApi('POST', `/api/reservations/${reservation.id}/${operation.action}`, {
       role: user.role,
       student_id: user.student_id,
     });
@@ -423,7 +431,7 @@ async function cancelMine(reservation, button) {
     if (MINE_STALE.has(result.code)) await loadMine();
     return;
   }
-  setMessage('mine', '取り消しました。', 'success');
+  setMessage('mine', operation.done, 'success');
   await loadMine();
 }
 
