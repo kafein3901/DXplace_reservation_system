@@ -12,5 +12,16 @@
     "bindings": [{ "name": "LEDGER", "class_name": "Ledger" }]
   },
   // 無料プランでは SQLite を使う Durable Object だけが作れる
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Ledger"] }]
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Ledger"] }],
+  "env": {
+    // テスト用の Worker（testing-and-deploy.md 5）。名前は wrangler が「上の名前-test」を付ける。
+    // main・assets・compatibility_date は上の値を引き継ぐ。
+    // durable_objects と migrations は引き継がれないので、上と同じものを書く
+    "test": {
+      "durable_objects": {
+        "bindings": [{ "name": "LEDGER", "class_name": "Ledger" }]
+      },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Ledger"] }]
+    }
+  }
 }

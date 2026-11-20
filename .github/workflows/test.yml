@@ -1,10 +1,15 @@
-# テストのジョブ（docs/design/basic/testing-and-deploy.md 2）
-# どのブランチの push でも、プルリクエストでも動く。デプロイのジョブは結合テストの後に足す
-name: test
+# テストとデプロイのジョブ（docs/design/basic/testing-and-deploy.md 2）
+# テストはどのブランチの push でも、プルリクエストでも動く。
+# デプロイは、テストが通ったときだけ、dev への push でテスト用の Worker に、main への push で本番の Worker に行う（NFR-4）
+name: test-and-deploy
 
 on:
   push:
   pull_request:
+
+# GitHub への書き込みは要らないので、読み取りだけにする
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -16,3 +21,42 @@ jobs:
           node-version-file: .nvmrc
       - run: npm ci
       - run: npm test
+
+  deploy-test:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    # 同じブランチのデプロイを1つずつ順に行う（古い版が後から反映されないように）
+    concurrency:
+      group: deploy-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      # テスト用の Worker（dxplace-reservation-system-test）に反映する
+      - run: npx wrangler deploy --env test
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  deploy-production:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      # 本番の Worker（dxplace-reservation-system）に反映する。v0.1.0 では main に push しない
+      - run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

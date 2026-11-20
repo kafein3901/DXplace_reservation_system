@@ -69,6 +69,10 @@ ID で検索すれば、その要件のテストがすべて見つかる。
 | テスト用へのデプロイ（`deploy-test`） | `dev` への push のときだけ。`needs: test`。`npx wrangler deploy --env test` |
 | 本番へのデプロイ（`deploy-production`） | `main` への push のときだけ。`needs: test`。`npx wrangler deploy` |
 | 鍵 | Cloudflare の API トークン（Workers の編集だけを許すもの）とアカウント ID を、GitHub の Actions のシークレットに置く。2つのデプロイのジョブで同じものを使う。トークンは学校のアカウントが作る（PRE-11） |
+| ワークフローの権限 | `permissions: contents: read`。GitHub への書き込みは要らないので、ワークフローの GitHub トークンを読み取りだけにする（2026-11-20 に開発者が了承） |
+| デプロイの順番 | `concurrency`（ブランチごと、`cancel-in-progress: false`）で、同じブランチのデプロイを1つずつ順に行う。続けて push したとき、古い版が新しい版の後に反映されないように（2026-11-20 に開発者が了承） |
+
+3つのジョブは1つのワークフロー（`.github/workflows/test.yml`）に置く。`needs: test` は同じワークフローの中のジョブにしか効かないため。
 
 - **ブランチの使い方。** コミットと push は `dev` に行う。`main` には直接コミットしない。`dev` を `main` にマージするのは、開発者が指示したときだけ。テストを通らない変更は、どちらの Worker にも反映されない（NFR-4）。本番に出るのは、テスト用の Worker で確かめた `dev` の内容だけになる。
 - **v0.1.0 は本番にデプロイしない**（2026-11-20 に開発者が決定）。本番へのデプロイのジョブは作っておくが、v0.1.0 の間は `dev` を `main` にマージしない。`main` は 2026-11-20 の時点（cff201b）のまま残す。
