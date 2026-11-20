@@ -77,3 +77,27 @@ export function insertReservation(sql, { deviceId, userId, startAt, endAt, statu
     )
     .one();
 }
+
+// 自分の予約の一覧で引く予約（api.md 8.29。RSV-7）：その利用者の予約済・利用中の全件（全機器）に、
+// devices を結合して機器の現在の名前を付けたもの（MNG-1）。並べるのは rules（rules.md 6.12）。
+// reservations_user_status が使われる形で書く。テストで EXPLAIN QUERY PLAN を見るため書き出す
+export const SQL_MY_RESERVATIONS = `
+  SELECT r.id, r.device_id, d.name AS device_name, r.user_id, r.start_at, r.end_at, r.status, r.walk_in
+  FROM reservations AS r JOIN devices AS d ON d.id = r.device_id
+  WHERE r.user_id = ? AND r.status IN ('reserved', 'in_use')`;
+
+export function findMyReservations(sql, userId) {
+  return sql.exec(SQL_MY_RESERVATIONS, userId).toArray();
+}
+
+// 番号で引く（状態を問わない）。なければ null。本人の予約かは rules が確かめる（api.md 8.30）
+export function findReservation(sql, id) {
+  const found = sql
+    .exec(
+      `SELECT id, device_id, user_id, start_at, end_at, status, cause, walk_in, created_at
+       FROM reservations WHERE id = ?`,
+      id,
+    )
+    .toArray();
+  return found.length === 0 ? null : found[0];
+}

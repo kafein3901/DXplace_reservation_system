@@ -1,9 +1,11 @@
-// 確保・予約なしの利用（rules.md 6.10・6.11）。時刻は nowMin = 10:00、上限は初期値（3件、1440分）
+// 確保・予約なしの利用・自分の予約・取消（rules.md 6.10〜6.12）。時刻は nowMin = 10:00、上限は初期値（3件、1440分）
 import { describe, expect, test } from 'vitest';
 import {
+  checkCancel,
   checkCount,
   checkEndNotPast,
   checkLength,
+  checkMyReservations,
   checkOverlap,
   checkReserve,
   checkStartNotPast,
@@ -323,5 +325,73 @@ describe('RSV-17 予約なしの利用（checkWalkIn）', () => {
         code: 'RULE_DEVICE_BUSY',
       });
     });
+  });
+});
+
+describe('RSV-7 自分の予約の一覧（checkMyReservations）', () => {
+  const USER = { id: 1 };
+
+  test('RSV-7 予約済・利用中（予約なしの利用を含む）を開始時刻の順に、同じ開始時刻なら番号の順に返す。別の機器も合わせる', () => {
+    const a = r({ id: 5, start: T(12), end: T(13) });
+    const b = r({ id: 3, start: T(10), end: T(11), status: 'in_use', walkIn: 1, deviceId: 2 });
+    const c = r({ id: 2, start: T(12), end: T(14), deviceId: 2 });
+    expect(checkMyReservations({ user: USER, userActive: [a, b, c] })).toEqual({ ok: true, reservations: [b, c, a] });
+  });
+
+  test('RSV-7 要素はそのまま返す（項目を選ばない）', () => {
+    const a = { ...r(), device_name: 'PC1' };
+    expect(checkMyReservations({ user: USER, userActive: [a] }).reservations[0]).toBe(a);
+  });
+
+  test('RSV-7 userActive が空なら空の配列', () => {
+    expect(checkMyReservations({ user: USER, userActive: [] })).toEqual({ ok: true, reservations: [] });
+  });
+
+  test('RSV-7 取消・無断不使用・終了などが混ざっていても落とす', () => {
+    const active = r({ start: T(11) });
+    const past = PAST_STATES.map((status) => r({ status }));
+    expect(checkMyReservations({ user: USER, userActive: [...past, active] }).reservations).toEqual([active]);
+  });
+
+  test('RSV-7 user が null なら NOT_FOUND_USER', () => {
+    expect(checkMyReservations({ user: null, userActive: [] })).toEqual({ ok: false, code: 'NOT_FOUND_USER' });
+  });
+});
+
+describe('RSV-8 取消（checkCancel）', () => {
+  const USER = { id: 1 };
+
+  test('RSV-8 本人の予約済は受け付ける', () => {
+    expect(checkCancel({ user: USER, reservation: r({ start: T(11), end: T(12) }) })).toEqual({ ok: true });
+  });
+
+  test('RSV-8 開始時刻を過ぎた予約済（猶予の中）も受け付ける', () => {
+    expect(checkCancel({ user: USER, reservation: r({ start: T(9, 50), end: T(11) }) })).toEqual({ ok: true });
+  });
+
+  test('RSV-8 user が null なら NOT_FOUND_USER', () => {
+    expect(checkCancel({ user: null, reservation: r() })).toEqual({ ok: false, code: 'NOT_FOUND_USER' });
+  });
+
+  test('RSV-8 reservation が null なら NOT_FOUND_RESERVATION', () => {
+    expect(checkCancel({ user: USER, reservation: null })).toEqual({ ok: false, code: 'NOT_FOUND_RESERVATION' });
+  });
+
+  test('RSV-8 他の利用者の予約は NOT_FOUND_RESERVATION', () => {
+    expect(checkCancel({ user: { id: 2 }, reservation: r() })).toEqual({ ok: false, code: 'NOT_FOUND_RESERVATION' });
+  });
+
+  test.each(['in_use', ...PAST_STATES])('RSV-8 本人の %s は STATE_NOT_RESERVED', (status) => {
+    expect(checkCancel({ user: USER, reservation: r({ status }) })).toEqual({ ok: false, code: 'STATE_NOT_RESERVED' });
+  });
+});
+
+describe('RSV-27 取消の確かめる順（checkCancel）', () => {
+  test('RSV-27 user が null で予約も null なら NOT_FOUND_USER', () => {
+    expect(checkCancel({ user: null, reservation: null }).code).toBe('NOT_FOUND_USER');
+  });
+
+  test('RSV-27 他の利用者の取消済みの予約は NOT_FOUND_RESERVATION（STATE_ にならない）', () => {
+    expect(checkCancel({ user: { id: 2 }, reservation: r({ status: 'cancelled' }) }).code).toBe('NOT_FOUND_RESERVATION');
   });
 });

@@ -25,7 +25,7 @@ import {
 } from './devices.js';
 import { changeUser, loginUser, registerUser } from './me.js';
 import { createAdminByMaint, resetAdminPasswordByMaint } from './maint.js';
-import { createReservation, startWalkIn } from './reservations.js';
+import { cancelReservation, createReservation, listMyReservations, startWalkIn } from './reservations.js';
 import { prepareSession, prepareSessionStatus, sessionStatus, startSession } from './session.js';
 import { prepareSharedInfo, setSharedInfo } from './shared-info.js';
 import { pbkdf2 } from '../lib/hash.js';
@@ -100,6 +100,15 @@ export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
     { method: 'GET', path: '/api/devices/{id}/day', auth: 'user', wrap: false, handler: deviceDay },
     { method: 'POST', path: '/api/reservations', auth: 'user', wrap: false, handler: createReservation },
     { method: 'POST', path: '/api/walk-ins', auth: 'user', wrap: false, handler: startWalkIn },
+    // 自分の予約・取消（api.md 8.29・8.30。RSV-7, RSV-8）
+    { method: 'POST', path: '/api/my/reservations', auth: 'user', wrap: false, handler: listMyReservations },
+    {
+      method: 'POST',
+      path: '/api/reservations/{id}/cancel',
+      auth: 'user',
+      wrap: false,
+      handler: cancelReservation,
+    },
   ];
 }
 

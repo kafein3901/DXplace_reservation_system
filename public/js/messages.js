@@ -26,6 +26,8 @@ const COMMON = {
   RULE_LENGTH: '1回の予約の長さの上限を超えています。',
   RULE_COUNT: '予約できる件数の上限に達しています。今の予約を使い終えるか取り消してから予約してください。',
   RULE_OVERLAP: 'ほかの予約と時間帯が重なっています。時刻を変えてください。',
+  NOT_FOUND_RESERVATION: 'この予約は見つかりません。',
+  STATE_NOT_RESERVED: 'この予約は、もう予約済ではありません。',
   RULE_DEVICE_BUSY: 'この機器は今使えません。自分の予約なら「自分の予約」から利用開始してください。',
   INPUT_DEVICE_NAME: '機器の名前は1〜30文字で入れてください。改行は使えません。',
   RULE_DEVICE_NAME_DUPLICATE: '同じ名前の機器があります。',

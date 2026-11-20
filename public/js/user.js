@@ -1,7 +1,7 @@
 // 利用者の画面の動き（screens.md 2・3）
 import { callApi } from './api.js';
 import { messageFor } from './messages.js';
-import { addMinutes, dayRange, displayInDay } from './time.js';
+import { addMinutes, dayRange, displayInDay, displayRange } from './time.js';
 
 const bar = document.getElementById('bar');
 const userLabel = document.getElementById('user-label');
@@ -34,6 +34,8 @@ function show(name) {
   if (name === 'walk-in') fillWalkInForm();
   // 予約状況は出すたびに取り直す（screens.md 3.1）。応答は後で届くので、呼んだ側がこの後に出す文は消えない
   if (name === 'day') loadDayDevices();
+  // 自分の予約も出すたびに取り直す（screens.md 3.1・3.7）
+  if (name === 'mine' && user !== null) loadMine();
 }
 
 // 帯のボタンから画面を出す。利用者が要る画面で利用者がいなければ、行き先を覚えてログインを出す（screens.md 3.1）。
@@ -342,6 +344,97 @@ walkInForm.addEventListener('submit', async (event) => {
 });
 
 document.getElementById('walk-in-back').addEventListener('click', () => show('day'));
+
+// ---- 自分の予約（screens.md 3.7。RSV-7〜RSV-19） ----
+
+const mineList = document.getElementById('mine-list');
+const mineNone = document.getElementById('mine-none');
+
+const MINE_STATUS_LABELS = { reserved: '予約済', in_use: '利用中' };
+
+// 一覧を取り直して描く（api.md 8.29）。.message は消さない（screens.md 3.1）
+async function loadMine() {
+  if (user === null) return showError('NOT_FOUND_USER');
+  const result = await callApi('POST', '/api/my/reservations', { role: user.role, student_id: user.student_id });
+  if (!result.ok) return showError(result.code);
+  now = result.data.now;
+  renderMine(result.data.reservations);
+}
+
+function renderMine(reservations) {
+  mineList.replaceChildren(...reservations.map(mineRow));
+  mineNone.hidden = reservations.length > 0;
+}
+
+function actionButton(label, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = label;
+  if (onClick === null) {
+    button.disabled = true; // 予約の操作④・⑤の実装まで押せない
+  } else {
+    button.addEventListener('click', () => onClick(button));
+  }
+  return button;
+}
+
+// 1行は「機器の名前 時間帯 状態」と操作のボタン。ボタンは status だけで決める（screens.md 3.7）。
+// 機器の名前は textContent（SEC-1）
+function mineRow(reservation) {
+  const item = document.createElement('li');
+  const text = document.createElement('span');
+  text.className = 'name';
+  text.textContent = `${reservation.device_name} ${displayRange(reservation.start, reservation.end)} ${MINE_STATUS_LABELS[reservation.status]}`;
+  item.append(text);
+  if (reservation.status === 'reserved') {
+    item.append(
+      actionButton('取消', (button) => cancelMine(reservation, button)),
+      actionButton('時間帯の変更', null),
+      actionButton('利用開始', null),
+    );
+  } else if (reservation.status === 'in_use') {
+    item.append(actionButton('時間帯の変更', null), actionButton('利用終了', null));
+  }
+  return item;
+}
+
+// 予約の操作のコードごとの動き（screens.md 3.7）：表示が古いので、文を出したうえで一覧を取り直す
+const MINE_STALE = new Set(['NOT_FOUND_RESERVATION', 'STATE_NOT_RESERVED', 'STATE_NOT_ACTIVE', 'STATE_NOT_IN_USE']);
+
+// 取消（api.md 8.30。RSV-8）。取り消せない操作なので確かめる（screens.md 2.7）
+async function cancelMine(reservation, button) {
+  if (!confirm('この予約を取り消しますか？')) return;
+  setMessage('mine', '', null);
+  if (user === null) return showError('NOT_FOUND_USER');
+  button.disabled = true;
+  let result;
+  try {
+    result = await callApi('POST', `/api/reservations/${reservation.id}/cancel`, {
+      role: user.role,
+      student_id: user.student_id,
+    });
+  } finally {
+    button.disabled = false;
+  }
+  if (!result.ok) {
+    showError(result.code);
+    if (MINE_STALE.has(result.code)) await loadMine();
+    return;
+  }
+  setMessage('mine', '取り消しました。', 'success');
+  await loadMine();
+}
+
+document.getElementById('mine-refresh').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  setMessage('mine', '', null);
+  button.disabled = true;
+  try {
+    await loadMine();
+  } finally {
+    button.disabled = false;
+  }
+});
 
 // ---- ログイン・登録・名前と期生の変更（screens.md 3.3。USR-3〜USR-7） ----
 

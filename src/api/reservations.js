@@ -1,4 +1,4 @@
-// 予約の操作（docs/design/detailed/api.md 8.16・8.25・8.27。RSV-2〜RSV-6, RSV-17, RSV-20, RSV-23, TIM-4, TIM-6, LOG-3）
+// 予約の操作（docs/design/detailed/api.md 8.16・8.25・8.27・8.29・8.30。RSV-2〜RSV-8, RSV-17, RSV-20, RSV-23, TIM-4, TIM-6, LOG-3）
 // 共2・共3・共4（本文を読めたか）は ledger.js が確かめ、期限の延長も ledger.js が付ける（api.md 8.12）。
 // 共3 から書き込みの終わりまで await がないので、ほぼ同時の要求も1つずつ処理される（RSV-23）
 import { applyAutoTransitions } from './auto.js';
@@ -6,13 +6,16 @@ import { ok, refuse } from './respond.js';
 import { hasStringFields } from '../lib/body.js';
 import { formatDateTime, parseDateTime } from '../lib/time.js';
 import { validateRole, validateStudentId } from '../lib/validate.js';
-import { checkReserve, checkWalkIn } from '../rules/reservations.js';
+import { checkCancel, checkMyReservations, checkReserve, checkWalkIn } from '../rules/reservations.js';
 import { findDevice } from '../store/devices.js';
 import { insertEvent } from '../store/events.js';
 import {
   findActiveReservationsByDevice,
   findActiveReservationsByUser,
+  findMyReservations,
+  findReservation,
   insertReservation,
+  updateReservationStatus,
 } from '../store/reservations.js';
 import { listSettings } from '../store/settings.js';
 import { findUserByIdentity } from '../store/users.js';
@@ -31,7 +34,7 @@ function validateIdentity(body) {
   return { ok: true, role: role.value, studentId: studentId.value };
 }
 
-// 確保・予約なしの利用の応答の data（api.md 8.25・8.27 で同じ形）
+// 確保・予約なしの利用・取消の応答の data（api.md 8.25・8.27・8.30 で同じ形）
 function reservationData(reservation) {
   return {
     id: reservation.id,
@@ -154,6 +157,76 @@ export function startWalkIn({ storage, body, now, nowMin }) {
       detail: { start_at: reservation.start_at, end_at: reservation.end_at },
     });
     return { reservation };
+  });
+  if (result.code !== undefined) return refuse(result.code);
+
+  return ok(reservationData(result.reservation));
+}
+
+// POST /api/my/reservations（api.md 8.29。RSV-7）。読むだけなので記録は書かない（反映した自動の変化を除く）
+export function listMyReservations({ storage, body, nowMin }) {
+  // 共4：識別の組は文字列
+  if (!hasStringFields(body, ['role', 'student_id'])) return refuse('INPUT_BODY');
+
+  // 段 1。ここで断るときは自動の変化も反映しない
+  const identity = validateIdentity(body);
+  if (!identity.ok) return refuse(identity.code);
+
+  const sql = storage.sql;
+  const result = storage.transactionSync(() => {
+    // 自動の変化が先（RSV-21）。猶予を過ぎた予約済・終了時刻を過ぎた利用中は一覧に出ない
+    applyAutoTransitions(sql, nowMin);
+    const user = findUserByIdentity(sql, identity.role, identity.studentId);
+    return checkMyReservations({ user, userActive: user === null ? [] : findMyReservations(sql, user.id) });
+  });
+  if (!result.ok) return refuse(result.code);
+
+  // 名前・期生・学籍番号・walk_in は入れない（api.md 8.29）
+  return ok({
+    now: formatDateTime(nowMin),
+    reservations: result.reservations.map((reservation) => ({
+      id: reservation.id,
+      device_id: reservation.device_id,
+      device_name: reservation.device_name,
+      start: formatDateTime(reservation.start_at),
+      end: formatDateTime(reservation.end_at),
+      status: reservation.status,
+    })),
+  });
+}
+
+// POST /api/reservations/{id}/cancel（api.md 8.30。RSV-8）。予約は番号だけで引き、本人のものかは rules が確かめる
+export function cancelReservation({ storage, body, params, now, nowMin }) {
+  // 共4：識別の組は文字列
+  if (!hasStringFields(body, ['role', 'student_id'])) return refuse('INPUT_BODY');
+
+  // 段 1。ここで断るときは自動の変化も反映しない
+  const identity = validateIdentity(body);
+  if (!identity.ok) return refuse(identity.code);
+
+  const sql = storage.sql;
+  // 段 2 以降で断っても、反映した自動の変化は残す
+  const result = storage.transactionSync(() => {
+    // 自動の変化が先（RSV-22）。猶予の終わりがちょうど nowMin の予約済は無断不使用になり、取り消せない
+    applyAutoTransitions(sql, nowMin);
+    const user = findUserByIdentity(sql, identity.role, identity.studentId);
+    const reservation = findReservation(sql, params.id);
+    const checked = checkCancel({ user, reservation });
+    if (!checked.ok) return { code: checked.code };
+
+    // 状態だけを変える。cause は NULL のまま、時刻は変えない。直ちに解放される（RSV-8）
+    updateReservationStatus(sql, reservation.id, 'cancelled');
+    // 取消は時間帯の境界を決めないので、記録の at は秒を切り捨てない（TIM-5）
+    insertEvent(sql, {
+      at: now,
+      actor_kind: 'user',
+      kind: 'reservation_status',
+      reservation_id: reservation.id,
+      device_id: reservation.device_id,
+      user_id: reservation.user_id,
+      detail: { from: 'reserved', to: 'cancelled' },
+    });
+    return { reservation: { ...reservation, status: 'cancelled' } };
   });
   if (result.code !== undefined) return refuse(result.code);
 

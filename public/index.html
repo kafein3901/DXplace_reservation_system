@@ -61,10 +61,14 @@
     </form>
   </section>
 
-  <!-- 自分の予約（screens.md 3.7。RSV-7）。中身は予約の操作の実装で足す。利用者が要る画面 -->
+  <!-- 自分の予約（screens.md 3.7。RSV-7〜RSV-19）。利用者が要る画面。
+       時間帯の変更・利用開始・利用終了のボタンは置くが、予約の操作④・⑤の実装まで disabled のまま -->
   <section id="screen-mine" hidden>
     <h1>自分の予約</h1>
     <p class="message"></p>
+    <button type="button" id="mine-refresh">最新にする</button>
+    <p id="mine-none" hidden>予約はありません。</p>
+    <ul id="mine-list" class="list"></ul>
   </section>
 
   <!-- ログイン（screens.md 3.3.2。USR-3, USR-4）。欄の並びは台帳が確かめる順と同じ。maxlength は付けない（3.3.1） -->

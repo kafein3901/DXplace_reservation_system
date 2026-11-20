@@ -1,4 +1,4 @@
-// 予約の操作のルール（docs/design/detailed/rules.md 6.10〜。RSV-2〜RSV-6, RSV-17, RSV-20, TIM-4, TIM-6, TIM-7）
+// 予約の操作のルール（docs/design/detailed/rules.md 6.10〜。RSV-2〜RSV-8, RSV-17, RSV-20, TIM-4, TIM-6, TIM-7）
 // 時刻はミリ秒。nowMin は秒を切り捨てた現在時刻。データは自動の変化を反映した後のもの（rules.md 5.3）
 import { MINUTE_MS } from '../lib/time.js';
 import { checkDeviceActive } from './devices.js';
@@ -95,4 +95,25 @@ export function checkWalkIn({ user, device, end, nowMin, settings, deviceActive 
     () => checkOverlap(deviceActive, nowMin, end, null),
   ];
   return firstRefusal(steps) ?? { ok: true, start: nowMin };
+}
+
+// 自分の予約の一覧（rules.md 6.12。RSV-7）。段 1 は api/ が先に確かめる。
+// 予約なしの利用で始めたものも出す。状態は rules でも確かめ、開始時刻の順（同じなら番号の順）に並べる。
+// 要素は選ばずにそのまま返す
+export function checkMyReservations({ user, userActive }) {
+  if (user === null) return { ok: false, code: 'NOT_FOUND_USER' };
+  const reservations = userActive
+    .filter(isActive)
+    .sort((a, b) => a.start_at - b.start_at || a.id - b.id);
+  return { ok: true, reservations };
+}
+
+// 取消（rules.md 6.12。RSV-8）。段 1 は api/ が先に確かめる。段 4〜8 はない。
+// 本人の予約でなければ、ないときと同じ NOT_FOUND_RESERVATION（状態を漏らさない）。
+// 猶予の中の予約済は開始時刻を過ぎていても取り消せる。2回目の取消・利用中は STATE_NOT_RESERVED
+export function checkCancel({ user, reservation }) {
+  if (user === null) return { ok: false, code: 'NOT_FOUND_USER' };
+  if (reservation === null || reservation.user_id !== user.id) return { ok: false, code: 'NOT_FOUND_RESERVATION' };
+  if (reservation.status !== 'reserved') return { ok: false, code: 'STATE_NOT_RESERVED' };
+  return OK;
 }

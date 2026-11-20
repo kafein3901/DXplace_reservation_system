@@ -14,6 +14,11 @@ export function displayInDay(s, date) {
   return s.slice(0, 10) === date ? s.slice(11, 16) : displayDateTime(s);
 }
 
+// 時間帯を日付付きで出す（screens.md 3.7）：11月20日 10:00–11:00。終わりが別の日なら終わりにも日付を付ける
+export function displayRange(start, end) {
+  return `${displayDateTime(start)}–${displayInDay(end, start.slice(0, 10))}`;
+}
+
 // YYYY-MM-DDTHH:mm に分を足す
 export function addMinutes(s, minutes) {
   const d = new Date(
