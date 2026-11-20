@@ -258,14 +258,29 @@ const reserveDeviceLabel = document.getElementById('reserve-device');
 const reserveStartField = document.getElementById('reserve-start');
 const reserveEndField = document.getElementById('reserve-end');
 
-// 初期値：開始は「選んでいる日＋now の時刻」（今日なら now そのもの）、終了はその60分後
-function fillReserveForm() {
+// 初期値：開始は「選んでいる日＋now の時刻」（今日なら now そのもの）、終了はその60分後。
+// 出すたびに now を取り直す。予約状況を開いてから分が変わっても、初期値のまま送って RULE_PAST にならないように（screens.md 3.5）
+async function fillReserveForm() {
   reserveDeviceLabel.textContent = selectedDevice === null ? '' : selectedDevice.name; // SEC-1
-  if (now === null) return;
-  const date = dayDateField.value === '' ? now.slice(0, 10) : dayDateField.value;
-  const start = `${date}T${now.slice(11, 16)}`;
-  reserveStartField.value = start;
-  reserveEndField.value = addMinutes(start, 60);
+  reserveStartField.value = '';
+  reserveEndField.value = '';
+  const button = reserveForm.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await callApi('GET', '/api/devices');
+    // 応答の前に別の画面に移っていれば欄を入れない（次に出すときに入れ直す）
+    if (currentScreen() !== 'reserve') return;
+    if (result.ok) now = result.data.now;
+    // 失敗したら文を出し、それまでの now で初期値を作る（欄を直して送れるように）
+    else showError(result.code);
+    if (now === null) return;
+    const date = dayDateField.value === '' ? now.slice(0, 10) : dayDateField.value;
+    const start = `${date}T${now.slice(11, 16)}`;
+    reserveStartField.value = start;
+    reserveEndField.value = addMinutes(start, 60);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 reserveForm.addEventListener('submit', async (event) => {
