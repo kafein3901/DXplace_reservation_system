@@ -1,6 +1,7 @@
 // 機器と予約状況（docs/design/detailed/api.md 8.18〜8.22・8.24。MNG-1, MNG-2, VIW-1〜VIW-3, LOG-2〜LOG-4）
 // 共2・共3・共4（本文を読めたか）は ledger.js が確かめ、期限の延長も ledger.js が付ける（api.md 8.5・8.12）。
 // どれも、共3 から書き込みの終わりまで await がないので、ほぼ同時の要求も1つずつ処理される（RSV-23）
+import { adminEvent } from './admin-event.js';
 import { applyAutoTransitions } from './auto.js';
 import { ok, refuse } from './respond.js';
 import { hasStringFields } from '../lib/body.js';
@@ -83,11 +84,6 @@ function validateNameInput(body) {
   const name = validateDeviceName(body.name);
   if (!name.ok) return { code: name.code };
   return { name: name.value };
-}
-
-// 管理者の操作の記録に共通の列（LOG-4）。at は秒を切り捨てない時刻
-function adminEvent(now, auth, event) {
-  return { at: now, actor_kind: 'admin', actor_admin_id: auth.admin.id, ...event };
 }
 
 // POST /api/admin/devices（api.md 8.19）

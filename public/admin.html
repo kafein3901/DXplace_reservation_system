@@ -10,6 +10,7 @@
   <!-- 上の帯（screens.md 4.1）。認証の画面では隠す。画面のボタンは機能ごとの実装で足す -->
   <nav id="bar" hidden>
     <button type="button" data-screen="devices">機器</button>
+    <button type="button" data-screen="reservations">予約の管理</button>
     <button type="button" data-screen="shared-info">共有された情報</button>
     <button type="button" id="logout">認証を解く</button>
     <span id="admin-label"></span>
@@ -42,6 +43,17 @@
       <button type="submit">変更する</button>
       <button type="button" id="device-rename-cancel">やめる</button>
     </form>
+  </section>
+
+  <!-- 予約の管理（screens.md 4.4。MNG-3） -->
+  <section id="screen-reservations" hidden>
+    <h1>予約の管理</h1>
+    <p class="message"></p>
+    <label>機器 <select id="manage-device"></select></label>
+    <button type="button" id="manage-refresh">最新にする</button>
+    <p id="manage-no-devices" hidden>機器がありません。</p>
+    <p id="manage-empty" hidden>予約済・利用中の予約はありません。</p>
+    <ul id="manage-list" class="list"></ul>
   </section>
 
   <!-- 共有された情報（screens.md 4.7。ADM-3） -->

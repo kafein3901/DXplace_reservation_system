@@ -1,6 +1,7 @@
 // 管理者の画面の動き（screens.md 2・4）
 import { callApi } from './api.js';
 import { messageFor } from './messages.js';
+import { displayRange } from './time.js';
 
 // 認証している管理者 { id, login_id, display_name }。認証の画面に移るときは null（screens.md 4.1）
 let admin = null;
@@ -259,12 +260,132 @@ async function deleteDevice(device, button) {
   loadDevices();
 }
 
+// ---- 予約の管理（screens.md 4.4。MNG-3） ----
+
+const manageDeviceField = document.getElementById('manage-device');
+const manageRefresh = document.getElementById('manage-refresh');
+const manageNoDevices = document.getElementById('manage-no-devices');
+const manageEmpty = document.getElementById('manage-empty');
+const manageList = document.getElementById('manage-list');
+
+const MANAGE_STATUS_LABELS = { reserved: '予約済', in_use: '利用中' };
+const ROLE_LABELS = { student: '生徒', teacher: '教員' };
+
+// 選んでいる機器の番号。なければ null
+let manageDeviceId = null;
+
+function clearManageList() {
+  manageList.replaceChildren();
+  manageEmpty.hidden = true;
+}
+
+// 開いたときの 1：機器の選択肢を作り直す。選んでいた機器が選択肢にあればそれを、なければ最初の機器を選ぶ（3.4 と同じ）。
+// 機器があれば 2 に進む
+async function loadManageDevices() {
+  const result = await callApi('GET', '/api/admin/devices');
+  if (!result.ok) return showError(result.code);
+  const { devices } = result.data;
+  const keep = devices.some((device) => device.id === manageDeviceId);
+  manageDeviceId = keep ? manageDeviceId : (devices[0]?.id ?? null);
+  manageDeviceField.replaceChildren(
+    ...devices.map((device) => {
+      const option = document.createElement('option');
+      option.value = String(device.id);
+      option.textContent = device.name; // SEC-1
+      return option;
+    }),
+  );
+  if (manageDeviceId !== null) manageDeviceField.value = String(manageDeviceId);
+  manageNoDevices.hidden = devices.length > 0;
+  manageDeviceField.disabled = devices.length === 0;
+  manageRefresh.disabled = devices.length === 0;
+  if (manageDeviceId === null) return clearManageList();
+  await loadManageReservations();
+}
+
+// 開いたときの 2：選んでいる機器の予約済・利用中の一覧を取り直して描く（api.md 8.37）。.message は消さない（screens.md 3.1）
+async function loadManageReservations() {
+  if (manageDeviceId === null) return;
+  const result = await callApi('GET', `/api/admin/devices/${manageDeviceId}/reservations`);
+  if (!result.ok) return showManageError(result.code);
+  const { reservations } = result.data;
+  manageEmpty.hidden = reservations.length > 0;
+  manageList.replaceChildren(...reservations.map(manageRow));
+}
+
+// 1行は「時間帯 状態 生徒か教員か 学籍番号 名前」と操作のボタン。学籍番号・名前は textContent（SEC-1）。
+// 学籍番号は MNG-3 により出す（VIW-2 は管理者の画面には当てはまらない）。ボタンは status だけで決める
+function manageRow(reservation) {
+  const item = document.createElement('li');
+  const text = document.createElement('span');
+  text.className = 'name';
+  text.textContent = [
+    displayRange(reservation.start, reservation.end),
+    MANAGE_STATUS_LABELS[reservation.status],
+    ROLE_LABELS[reservation.role],
+    reservation.student_id,
+    reservation.name,
+  ].join(' ');
+  item.append(text);
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  if (reservation.status === 'reserved') {
+    button.textContent = '取消';
+    button.addEventListener('click', () =>
+      manageAction(button, '/cancel', reservation.id, 'この予約を取り消しますか？', '取り消しました。'),
+    );
+  } else {
+    button.textContent = '終了';
+    button.addEventListener('click', () =>
+      manageAction(button, '/finish', reservation.id, 'この利用を終了させますか？', '利用を終了させました。'),
+    );
+  }
+  item.append(button);
+  return item;
+}
+
+// コードごとの動き（screens.md 4.4）。予約のコードは一覧を取り直し、NOT_FOUND_DEVICE は機器の選択肢から読み直す
+function showManageError(code) {
+  showError(code);
+  if (code === 'NOT_FOUND_RESERVATION' || code === 'STATE_NOT_RESERVED' || code === 'STATE_NOT_IN_USE') {
+    loadManageReservations();
+  } else if (code === 'NOT_FOUND_DEVICE') {
+    loadManageDevices();
+  }
+}
+
+// 取消・終了。番号はクロージャで持つ（screens.md 4.1）。本文は {}
+async function manageAction(button, suffix, id, question, success) {
+  if (!confirm(question)) return;
+  setMessage('reservations', '', null);
+  const result = await sendWith(button, `/api/admin/reservations/${id}${suffix}`, {});
+  if (!result.ok) return showManageError(result.code);
+  setMessage('reservations', success, 'success');
+  loadManageReservations();
+}
+
+// 機器を変えたとき、「最新にする」を押したときは 2 だけを行う
+manageDeviceField.addEventListener('change', () => {
+  manageDeviceId = Number(manageDeviceField.value);
+  setMessage('reservations', '', null);
+  clearManageList();
+  loadManageReservations();
+});
+
+manageRefresh.addEventListener('click', () => {
+  setMessage('reservations', '', null);
+  loadManageReservations();
+});
+
 // 画面を出し、出すたびに取り直す画面なら取り直す（screens.md 4.1・3.1）
 function open(name) {
   show(name);
   if (name === 'devices') {
     hideRenameForm();
     loadDevices();
+  } else if (name === 'reservations') {
+    loadManageDevices();
   }
 }
 

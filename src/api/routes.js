@@ -16,6 +16,11 @@
 // 本番の台帳は既定の部品で作った ROUTES だけを使う
 import { login, logout, me, prepareLogin } from './admin-auth.js';
 import {
+  cancelReservationByAdmin,
+  finishReservationByAdmin,
+  listDeviceReservationsForAdmin,
+} from './admin-reservations.js';
+import {
   createDevice,
   deleteDevice,
   deviceDay,
@@ -139,6 +144,28 @@ export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
       auth: 'user',
       wrap: false,
       handler: finishReservation,
+    },
+    // 予約の管理（api.md 8.37〜8.39。MNG-3）
+    {
+      method: 'GET',
+      path: '/api/admin/devices/{id}/reservations',
+      auth: 'admin',
+      wrap: false,
+      handler: listDeviceReservationsForAdmin,
+    },
+    {
+      method: 'POST',
+      path: '/api/admin/reservations/{id}/cancel',
+      auth: 'admin',
+      wrap: false,
+      handler: cancelReservationByAdmin,
+    },
+    {
+      method: 'POST',
+      path: '/api/admin/reservations/{id}/finish',
+      auth: 'admin',
+      wrap: false,
+      handler: finishReservationByAdmin,
     },
   ];
 }

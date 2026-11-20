@@ -45,8 +45,9 @@ function validateIdentity(body) {
   return { ok: true, role: role.value, studentId: studentId.value };
 }
 
-// 確保・予約なしの利用・取消・時間帯の変更・利用開始・利用終了の応答の data（api.md 8.25・8.27・8.30・8.32・8.34・8.35 で同じ形）
-function reservationData(reservation) {
+// 確保・予約なしの利用・取消・時間帯の変更・利用開始・利用終了・管理者による取消と終了の応答の data
+// （api.md 8.25・8.27・8.30・8.32・8.34・8.35・8.38・8.39 で同じ形）
+export function reservationData(reservation) {
   return {
     id: reservation.id,
     device_id: reservation.device_id,

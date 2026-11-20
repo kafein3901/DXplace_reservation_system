@@ -117,3 +117,25 @@ export function updateReservationBegin(sql, id, startAt) {
 export function updateReservationFinish(sql, id, endAt) {
   sql.exec("UPDATE reservations SET status = 'finished', end_at = ? WHERE id = ?", endAt, id);
 }
+
+// 予約の管理の一覧で引く予約（api.md 8.37。MNG-3）：その機器の予約済・利用中の全件に、users を結合して
+// 生徒か教員か・そろえた学籍番号・現在の名前を付けたもの（管理者の API なので学籍番号を含める）。並べるのは rules（rules.md 6.16）。
+// reservations_device_status が使われる形で書く。テストで EXPLAIN QUERY PLAN を見るため書き出す
+export const SQL_ADMIN_DEVICE_RESERVATIONS = `
+  SELECT r.id, r.device_id, r.user_id, r.start_at, r.end_at, r.status, r.walk_in, u.role, u.student_id, u.name
+  FROM reservations AS r JOIN users AS u ON u.id = r.user_id
+  WHERE r.device_id = ? AND r.status IN ('reserved', 'in_use')`;
+
+export function findAdminDeviceReservations(sql, deviceId) {
+  return sql.exec(SQL_ADMIN_DEVICE_RESERVATIONS, deviceId).toArray();
+}
+
+// 管理者による終了。状態を admin_finished、終了時刻を nowMin、原因を admin_action にする。
+// 開始・予約なしの利用か・機器は変えない（api.md 8.39）
+export function updateReservationAdminFinished(sql, id, endAt) {
+  sql.exec(
+    "UPDATE reservations SET status = 'admin_finished', end_at = ?, cause = 'admin_action' WHERE id = ?",
+    endAt,
+    id,
+  );
+}
