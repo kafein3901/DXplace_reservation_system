@@ -1,4 +1,4 @@
-// 予約の操作（docs/design/detailed/api.md 8.16・8.25・8.27・8.29・8.30。RSV-2〜RSV-8, RSV-17, RSV-20, RSV-23, TIM-4, TIM-6, LOG-3）
+// 予約の操作（docs/design/detailed/api.md 8.16・8.25・8.27・8.29・8.30・8.32。RSV-2〜RSV-12, RSV-17, RSV-20, RSV-23, TIM-4, TIM-6, LOG-3）
 // 共2・共3・共4（本文を読めたか）は ledger.js が確かめ、期限の延長も ledger.js が付ける（api.md 8.12）。
 // 共3 から書き込みの終わりまで await がないので、ほぼ同時の要求も1つずつ処理される（RSV-23）
 import { applyAutoTransitions } from './auto.js';
@@ -6,7 +6,7 @@ import { ok, refuse } from './respond.js';
 import { hasStringFields } from '../lib/body.js';
 import { formatDateTime, parseDateTime } from '../lib/time.js';
 import { validateRole, validateStudentId } from '../lib/validate.js';
-import { checkCancel, checkMyReservations, checkReserve, checkWalkIn } from '../rules/reservations.js';
+import { checkCancel, checkChange, checkMyReservations, checkReserve, checkWalkIn } from '../rules/reservations.js';
 import { findDevice } from '../store/devices.js';
 import { insertEvent } from '../store/events.js';
 import {
@@ -16,6 +16,7 @@ import {
   findReservation,
   insertReservation,
   updateReservationStatus,
+  updateReservationTimes,
 } from '../store/reservations.js';
 import { listSettings } from '../store/settings.js';
 import { findUserByIdentity } from '../store/users.js';
@@ -34,7 +35,7 @@ function validateIdentity(body) {
   return { ok: true, role: role.value, studentId: studentId.value };
 }
 
-// 確保・予約なしの利用・取消の応答の data（api.md 8.25・8.27・8.30 で同じ形）
+// 確保・予約なしの利用・取消・時間帯の変更の応答の data（api.md 8.25・8.27・8.30・8.32 で同じ形）
 function reservationData(reservation) {
   return {
     id: reservation.id,
@@ -227,6 +228,62 @@ export function cancelReservation({ storage, body, params, now, nowMin }) {
       detail: { from: 'reserved', to: 'cancelled' },
     });
     return { reservation: { ...reservation, status: 'cancelled' } };
+  });
+  if (result.code !== undefined) return refuse(result.code);
+
+  return ok(reservationData(result.reservation));
+}
+
+// POST /api/reservations/{id}/change（api.md 8.32。RSV-9〜RSV-12）。機器は受け取らない（RSV-9）。
+// 変えない側も今の値を受け取り、今と同じ値の側を「変えない時刻」とする（rules.md 6.13）
+export function changeReservation({ storage, body, params, now, nowMin }) {
+  // 共4：識別の組と時刻は文字列。device_id は知らない項目として読まない
+  if (!hasStringFields(body, ['role', 'student_id', 'start', 'end'])) return refuse('INPUT_BODY');
+
+  // 段 1。ここで断るときは何も書かず、自動の変化も反映しない
+  const identity = validateIdentity(body);
+  if (!identity.ok) return refuse(identity.code);
+  const start = parseDateTime(body.start);
+  if (!start.ok) return refuse(start.code);
+  const end = parseDateTime(body.end);
+  if (!end.ok) return refuse(end.code);
+
+  const sql = storage.sql;
+  // 段 2 以降で断っても、反映した自動の変化は残す
+  const result = storage.transactionSync(() => {
+    // 自動の変化が先（RSV-22）。終了時刻がちょうど nowMin の利用中は終了になり、延長できない
+    applyAutoTransitions(sql, nowMin);
+    const user = findUserByIdentity(sql, identity.role, identity.studentId);
+    const reservation = findReservation(sql, params.id);
+    // 利用者の予約は引かない（件数を理由に断らない。RSV-12）。機器の予約はその予約自身を含む
+    const checked = checkChange({
+      user,
+      reservation,
+      start: start.value,
+      end: end.value,
+      nowMin,
+      settings: listSettings(sql),
+      deviceActive: reservation === null ? [] : findActiveReservationsByDevice(sql, reservation.device_id),
+    });
+    if (!checked.ok) return { code: checked.code };
+    // 両方とも変えないときは何も書かない（記録もしない）
+    if (checked.action === 'unchanged') return { reservation };
+
+    // 時刻は入力どおり。記録の at は秒を切り捨てない（TIM-5）。状態は変わらないので reservation_status は書かない
+    updateReservationTimes(sql, reservation.id, start.value, end.value);
+    insertEvent(sql, {
+      at: now,
+      actor_kind: 'user',
+      kind: 'reservation_time_changed',
+      reservation_id: reservation.id,
+      device_id: reservation.device_id,
+      user_id: reservation.user_id,
+      detail: {
+        before: { start_at: reservation.start_at, end_at: reservation.end_at },
+        after: { start_at: start.value, end_at: end.value },
+      },
+    });
+    return { reservation: { ...reservation, start_at: start.value, end_at: end.value } };
   });
   if (result.code !== undefined) return refuse(result.code);
 

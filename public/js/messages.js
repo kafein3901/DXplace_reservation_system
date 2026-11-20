@@ -28,6 +28,8 @@ const COMMON = {
   RULE_OVERLAP: 'ほかの予約と時間帯が重なっています。時刻を変えてください。',
   NOT_FOUND_RESERVATION: 'この予約は見つかりません。',
   STATE_NOT_RESERVED: 'この予約は、もう予約済ではありません。',
+  STATE_NOT_ACTIVE: 'この予約は、もう予約済でも利用中でもありません。',
+  RULE_START_PASSED: '開始時刻を過ぎているので、変えられるのは終了時刻だけです。',
   RULE_DEVICE_BUSY: 'この機器は今使えません。自分の予約なら「自分の予約」から利用開始してください。',
   INPUT_DEVICE_NAME: '機器の名前は1〜30文字で入れてください。改行は使えません。',
   RULE_DEVICE_NAME_DUPLICATE: '同じ名前の機器があります。',

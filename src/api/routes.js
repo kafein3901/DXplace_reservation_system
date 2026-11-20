@@ -25,7 +25,13 @@ import {
 } from './devices.js';
 import { changeUser, loginUser, registerUser } from './me.js';
 import { createAdminByMaint, resetAdminPasswordByMaint } from './maint.js';
-import { cancelReservation, createReservation, listMyReservations, startWalkIn } from './reservations.js';
+import {
+  cancelReservation,
+  changeReservation,
+  createReservation,
+  listMyReservations,
+  startWalkIn,
+} from './reservations.js';
 import { prepareSession, prepareSessionStatus, sessionStatus, startSession } from './session.js';
 import { prepareSharedInfo, setSharedInfo } from './shared-info.js';
 import { pbkdf2 } from '../lib/hash.js';
@@ -108,6 +114,14 @@ export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
       auth: 'user',
       wrap: false,
       handler: cancelReservation,
+    },
+    // 時間帯の変更（api.md 8.32。RSV-9〜RSV-12）
+    {
+      method: 'POST',
+      path: '/api/reservations/{id}/change',
+      auth: 'user',
+      wrap: false,
+      handler: changeReservation,
     },
   ];
 }

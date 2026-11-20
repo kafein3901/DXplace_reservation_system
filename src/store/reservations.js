@@ -101,3 +101,8 @@ export function findReservation(sql, id) {
     .toArray();
   return found.length === 0 ? null : found[0];
 }
+
+// 時間帯の変更。開始・終了の時刻だけを変え、状態・原因・予約なしの利用か・機器は変えない（api.md 8.32）
+export function updateReservationTimes(sql, id, startAt, endAt) {
+  sql.exec('UPDATE reservations SET start_at = ?, end_at = ? WHERE id = ?', startAt, endAt, id);
+}

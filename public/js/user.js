@@ -358,6 +358,8 @@ async function loadMine() {
   const result = await callApi('POST', '/api/my/reservations', { role: user.role, student_id: user.student_id });
   if (!result.ok) return showError(result.code);
   now = result.data.now;
+  // 取り直したら時間帯の変更のフォームは隠す（screens.md 3.7）
+  hideRetimeForm();
   renderMine(result.data.reservations);
 }
 
@@ -371,7 +373,7 @@ function actionButton(label, onClick) {
   button.type = 'button';
   button.textContent = label;
   if (onClick === null) {
-    button.disabled = true; // 予約の操作④・⑤の実装まで押せない
+    button.disabled = true; // 予約の操作⑤の実装まで押せない
   } else {
     button.addEventListener('click', () => onClick(button));
   }
@@ -389,11 +391,11 @@ function mineRow(reservation) {
   if (reservation.status === 'reserved') {
     item.append(
       actionButton('取消', (button) => cancelMine(reservation, button)),
-      actionButton('時間帯の変更', null),
+      actionButton('時間帯の変更', () => showRetimeForm(reservation)),
       actionButton('利用開始', null),
     );
   } else if (reservation.status === 'in_use') {
-    item.append(actionButton('時間帯の変更', null), actionButton('利用終了', null));
+    item.append(actionButton('時間帯の変更', () => showRetimeForm(reservation)), actionButton('利用終了', null));
   }
   return item;
 }
@@ -424,6 +426,65 @@ async function cancelMine(reservation, button) {
   setMessage('mine', '取り消しました。', 'success');
   await loadMine();
 }
+
+// ---- 時間帯の変更（screens.md 3.7。RSV-9〜RSV-12） ----
+
+const retimeForm = document.getElementById('retime-form');
+const retimeDeviceLabel = document.getElementById('retime-device');
+const retimeStartField = document.getElementById('retime-start');
+const retimeStartNote = document.getElementById('retime-start-note');
+const retimeEndField = document.getElementById('retime-end');
+
+// フォームで変えている予約。隠しているときは null
+let retimeTarget = null;
+
+// その予約の機器の名前と、今の start・end を初期値にした欄を出す。
+// 利用中（RSV-10）、または開始時刻を過ぎた予約済（RSV-11）は開始の欄を止める。比べるのは文字列どうし（screens.md 3.4）
+function showRetimeForm(reservation) {
+  setMessage('mine', '', null);
+  retimeTarget = reservation;
+  retimeDeviceLabel.textContent = reservation.device_name; // SEC-1
+  retimeStartField.value = reservation.start;
+  retimeEndField.value = reservation.end;
+  const startFixed = reservation.status === 'in_use' || (now !== null && reservation.start <= now);
+  retimeStartField.disabled = startFixed;
+  retimeStartNote.hidden = !startFixed;
+  retimeForm.hidden = false;
+}
+
+function hideRetimeForm() {
+  retimeTarget = null;
+  retimeForm.hidden = true;
+}
+
+retimeForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  setMessage('mine', '', null);
+  if (user === null) return showError('NOT_FOUND_USER');
+  if (retimeTarget === null) return;
+  // 変えない側も今の値を送る。disabled の欄も値を読んで送る（api.md 8.32）
+  const start = retimeStartField.value;
+  const end = retimeEndField.value;
+  if (start === '' || end === '') return setMessage('mine', '開始時刻と終了時刻を入れてください。', 'error');
+
+  // 判定は台帳が行う（RSV-24）
+  const result = await submitWith(retimeForm, `/api/reservations/${retimeTarget.id}/change`, {
+    role: user.role,
+    student_id: user.student_id,
+    start,
+    end,
+  });
+  if (!result.ok) {
+    showError(result.code);
+    // 表示が古いときは一覧を取り直す（フォームも隠れる）。ほかのコードはフォームを残す
+    if (MINE_STALE.has(result.code)) await loadMine();
+    return;
+  }
+  setMessage('mine', '時間帯を変えました。', 'success');
+  await loadMine();
+});
+
+document.getElementById('retime-cancel').addEventListener('click', hideRetimeForm);
 
 document.getElementById('mine-refresh').addEventListener('click', async (event) => {
   const button = event.currentTarget;

@@ -1,4 +1,4 @@
-// 予約の操作のルール（docs/design/detailed/rules.md 6.10〜。RSV-2〜RSV-8, RSV-17, RSV-20, TIM-4, TIM-6, TIM-7）
+// 予約の操作のルール（docs/design/detailed/rules.md 6.10〜。RSV-2〜RSV-12, RSV-17, RSV-20, TIM-4, TIM-6, TIM-7）
 // 時刻はミリ秒。nowMin は秒を切り捨てた現在時刻。データは自動の変化を反映した後のもの（rules.md 5.3）
 import { MINUTE_MS } from '../lib/time.js';
 import { checkDeviceActive } from './devices.js';
@@ -112,8 +112,48 @@ export function checkMyReservations({ user, userActive }) {
 // 本人の予約でなければ、ないときと同じ NOT_FOUND_RESERVATION（状態を漏らさない）。
 // 猶予の中の予約済は開始時刻を過ぎていても取り消せる。2回目の取消・利用中は STATE_NOT_RESERVED
 export function checkCancel({ user, reservation }) {
-  if (user === null) return { ok: false, code: 'NOT_FOUND_USER' };
-  if (reservation === null || reservation.user_id !== user.id) return { ok: false, code: 'NOT_FOUND_RESERVATION' };
+  const own = checkOwnReservation(user, reservation);
+  if (!own.ok) return own;
   if (reservation.status !== 'reserved') return { ok: false, code: 'STATE_NOT_RESERVED' };
   return OK;
+}
+
+// 段 2：利用者がいて、予約が本人のもの（rules.md 6.12・6.13）。
+// 本人の予約でなければ、ないときと同じ NOT_FOUND_RESERVATION（予約があるか・状態を漏らさない）
+function checkOwnReservation(user, reservation) {
+  if (user === null) return { ok: false, code: 'NOT_FOUND_USER' };
+  if (reservation === null || reservation.user_id !== user.id) return { ok: false, code: 'NOT_FOUND_RESERVATION' };
+  return OK;
+}
+
+// 段 4：開始時刻を変えられるのは、変更前の開始時刻になる前だけ（RSV-11。TIM-2 と同じく、ちょうどの分からは変えられない）
+export function checkStartNotPassed(oldStart, nowMin) {
+  return nowMin < oldStart ? OK : { ok: false, code: 'RULE_START_PASSED' };
+}
+
+// 段 6：変更後の長さが上限以下、または変更前の長さ以下（RSV-12。上限を下げた後もずらす・短くするは受け付ける）
+export function checkChangeLength(oldStart, oldEnd, newStart, newEnd, limitMinutes) {
+  const length = newEnd - newStart;
+  return length <= limitMinutes * MINUTE_MS || length <= oldEnd - oldStart ? OK : { ok: false, code: 'RULE_LENGTH' };
+}
+
+// 時間帯の変更（rules.md 6.13。RSV-9〜RSV-12）。段 1 は api/ が先に確かめる。
+// start・end は変更後の値で、変えない側は今と同じ値。今と同じ値の側を「変えない時刻」とする。
+// 利用中の開始は必ず nowMin 以下なので、段 4 の RSV-11 の条件だけで RSV-10（終了時刻だけ）が守られる。
+// 段 7 はない（件数を理由に断らない。RSV-12）。両方とも変えないときも段 3〜8 を確かめる（必ず通る）
+export function checkChange({ user, reservation, start, end, nowMin, settings, deviceActive }) {
+  const r = reservation;
+  const steps = [
+    () => checkOwnReservation(user, r),
+    () => (isActive(r) ? OK : { ok: false, code: 'STATE_NOT_ACTIVE' }),
+    () => (start !== r.start_at ? checkStartNotPassed(r.start_at, nowMin) : OK),
+    () => (start !== r.start_at ? checkStartNotPast(start, nowMin) : OK),
+    () => (end !== r.end_at ? checkEndNotPast(end, nowMin) : OK),
+    () => checkTimeOrder(start, end),
+    () => checkChangeLength(r.start_at, r.end_at, start, end, settingAt(settings, 'max_length_minutes', nowMin)),
+    () => checkOverlap(deviceActive, start, end, r.id),
+  ];
+  const refusal = firstRefusal(steps);
+  if (refusal !== null) return refusal;
+  return { ok: true, action: start === r.start_at && end === r.end_at ? 'unchanged' : 'change' };
 }

@@ -62,13 +62,22 @@
   </section>
 
   <!-- 自分の予約（screens.md 3.7。RSV-7〜RSV-19）。利用者が要る画面。
-       時間帯の変更・利用開始・利用終了のボタンは置くが、予約の操作④・⑤の実装まで disabled のまま -->
+       利用開始・利用終了のボタンは置くが、予約の操作⑤の実装まで disabled のまま -->
   <section id="screen-mine" hidden>
     <h1>自分の予約</h1>
     <p class="message"></p>
     <button type="button" id="mine-refresh">最新にする</button>
     <p id="mine-none" hidden>予約はありません。</p>
     <ul id="mine-list" class="list"></ul>
+    <!-- 時間帯の変更（screens.md 3.7。RSV-9〜RSV-12）。一覧の下に1つだけ置く -->
+    <form id="retime-form" hidden>
+      <p>機器：<span id="retime-device"></span></p>
+      <label>開始時刻 <input type="datetime-local" id="retime-start"></label>
+      <p id="retime-start-note" hidden>開始時刻を過ぎているので、変えられるのは終了時刻だけです。</p>
+      <label>終了時刻 <input type="datetime-local" id="retime-end"></label>
+      <button type="submit">変更する</button>
+      <button type="button" id="retime-cancel">やめる</button>
+    </form>
   </section>
 
   <!-- ログイン（screens.md 3.3.2。USR-3, USR-4）。欄の並びは台帳が確かめる順と同じ。maxlength は付けない（3.3.1） -->
