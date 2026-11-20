@@ -19,3 +19,22 @@ export function settingAt(settings, key, at) {
   if (found === null) throw new Error(`数値の履歴に値がない：${key}`);
   return found.value;
 }
+
+// 数値の項目の一覧（schema.md 2.4。rules.md 6.17）。api/ の共4 と store が使う
+export const SETTING_KEYS = ['max_count', 'grace_minutes', 'max_length_minutes'];
+
+// nowMin の時点の3つの値（rules.md 6.17。RSV-25）。判定はなく、GET の応答を組むためだけに使う
+export function currentSettings(settings, nowMin) {
+  return {
+    max_count: settingAt(settings, 'max_count', nowMin),
+    grace_minutes: settingAt(settings, 'grace_minutes', nowMin),
+    max_length_minutes: settingAt(settings, 'max_length_minutes', nowMin),
+  };
+}
+
+// 数値の変更（rules.md 6.17。RSV-25, RSV-26）。断らない。
+// before は nowMin の時点の値。同じ値なら unchanged、違えば change（effective_at = nowMin の行を足す）
+export function decideSettingChange({ settings, key, value, nowMin }) {
+  const before = settingAt(settings, key, nowMin);
+  return { ok: true, action: before === value ? 'unchanged' : 'change', before };
+}

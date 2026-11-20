@@ -40,6 +40,7 @@ import {
   startWalkIn,
 } from './reservations.js';
 import { prepareSession, prepareSessionStatus, sessionStatus, startSession } from './session.js';
+import { changeSetting, getSettings } from './settings.js';
 import { prepareSharedInfo, setSharedInfo } from './shared-info.js';
 import { pbkdf2 } from '../lib/hash.js';
 
@@ -167,6 +168,9 @@ export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
       wrap: false,
       handler: finishReservationByAdmin,
     },
+    // 数値の変更（api.md 8.41・8.42。RSV-25, RSV-26）
+    { method: 'GET', path: '/api/admin/settings', auth: 'admin', wrap: false, handler: getSettings },
+    { method: 'POST', path: '/api/admin/settings', auth: 'admin', wrap: false, handler: changeSetting },
   ];
 }
 

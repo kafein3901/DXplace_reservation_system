@@ -378,6 +378,40 @@ manageRefresh.addEventListener('click', () => {
   loadManageReservations();
 });
 
+// 数値（screens.md 4.5。RSV-25, RSV-26）。行は data-key（api.md 8.41 の項目の名前）と data-label（文に使う名前）を持つ
+const settingRows = [...document.querySelectorAll('#screen-settings [data-key]')];
+
+// 応答の3つの値で3つの欄をすべて入れ直す
+function fillSettings(values) {
+  for (const row of settingRows) row.querySelector('input').value = String(values[row.dataset.key]);
+}
+
+// 開いたとき：取り直して欄に入れる。断られたら文だけを出す
+async function loadSettings() {
+  const result = await callApi('GET', '/api/admin/settings');
+  if (!result.ok) return showError(result.code);
+  fillSettings(result.data);
+}
+
+// 保存：その行の値だけを送る。空・数でなければ送らない（screens.md 2.9）。小数・0 などは送り、台帳に任せる
+for (const row of settingRows) {
+  const input = row.querySelector('input');
+  const button = row.querySelector('button');
+  button.addEventListener('click', async () => {
+    setMessage('settings', '', null);
+    const label = row.dataset.label;
+    if (input.value.trim() === '') return setMessage('settings', `${label}を入れてください。`, 'error');
+    const value = Number(input.value);
+    if (!Number.isFinite(value)) return setMessage('settings', `${label}を数で入れてください。`, 'error');
+
+    const result = await sendWith(button, '/api/admin/settings', { key: row.dataset.key, value });
+    // INPUT_SETTING_VALUE は文を出して欄を残す
+    if (!result.ok) return showError(result.code);
+    fillSettings(result.data);
+    setMessage('settings', '保存しました。', 'success');
+  });
+}
+
 // 画面を出し、出すたびに取り直す画面なら取り直す（screens.md 4.1・3.1）
 function open(name) {
   show(name);
@@ -386,6 +420,8 @@ function open(name) {
     loadDevices();
   } else if (name === 'reservations') {
     loadManageDevices();
+  } else if (name === 'settings') {
+    loadSettings();
   }
 }
 

@@ -8,6 +8,7 @@ import {
   validateName,
   validatePassword,
   validateRole,
+  validateSettingValue,
   validateStudentId,
 } from '../../src/lib/validate.js';
 
@@ -202,4 +203,38 @@ describe('USR-6 期生（validateCohort）', () => {
   ])('USR-6 教員は %s でも受け付けて null にする', (_, input) => {
     expect(validateCohort('teacher', input)).toEqual({ ok: true, value: null });
   });
+});
+
+describe('RSV-25 数値の変更の値（validateSettingValue）', () => {
+  const MINUTE_MAX = Math.floor(Number.MAX_SAFE_INTEGER / 60000);
+  const minuteKeys = ['grace_minutes', 'max_length_minutes'];
+
+  test.each([1, 3, Number.MAX_SAFE_INTEGER])('RSV-25 max_count の %d を受け付ける', (input) => {
+    expect(validateSettingValue('max_count', input)).toEqual({ ok: true, value: input });
+  });
+
+  test.each(minuteKeys.flatMap((key) => [1, 15, MINUTE_MAX].map((v) => [key, v])))(
+    'RSV-25 %s の %d を受け付ける',
+    (key, input) => {
+      expect(validateSettingValue(key, input)).toEqual({ ok: true, value: input });
+    },
+  );
+
+  test.each([
+    ['0', 0],
+    ['負の数', -1],
+    ['小数', 1.5],
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['安全な整数を超える', Number.MAX_SAFE_INTEGER + 1],
+  ])('RSV-25 max_count で %s は INPUT_SETTING_VALUE', (_, input) => {
+    expect(validateSettingValue('max_count', input)).toEqual({ ok: false, code: 'INPUT_SETTING_VALUE' });
+  });
+
+  test.each(minuteKeys.flatMap((key) => [[key, 0], [key, 1.5], [key, MINUTE_MAX + 1], [key, Number.MAX_SAFE_INTEGER]]))(
+    'RSV-25 %s で %d は INPUT_SETTING_VALUE（ミリ秒に直すと安全な整数を超えるものを含む）',
+    (key, input) => {
+      expect(validateSettingValue(key, input)).toEqual({ ok: false, code: 'INPUT_SETTING_VALUE' });
+    },
+  );
 });

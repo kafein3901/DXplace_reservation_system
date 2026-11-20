@@ -11,6 +11,7 @@
   <nav id="bar" hidden>
     <button type="button" data-screen="devices">機器</button>
     <button type="button" data-screen="reservations">予約の管理</button>
+    <button type="button" data-screen="settings">数値</button>
     <button type="button" data-screen="shared-info">共有された情報</button>
     <button type="button" id="logout">認証を解く</button>
     <span id="admin-label"></span>
@@ -54,6 +55,27 @@
     <p id="manage-no-devices" hidden>機器がありません。</p>
     <p id="manage-empty" hidden>予約済・利用中の予約はありません。</p>
     <ul id="manage-list" class="list"></ul>
+  </section>
+
+  <!-- 数値（screens.md 4.5。RSV-25, RSV-26）。行ごとに保存し、1回に1つだけ送る（api.md 8.42） -->
+  <section id="screen-settings" hidden>
+    <h1>数値</h1>
+    <p>変更は今から有効です。確保済みの予約は取り消されません。猶予は、それぞれの予約の開始時刻の時点の値が使われます。</p>
+    <p class="message"></p>
+    <ul class="list">
+      <li data-key="max_count" data-label="1人が同時に確保できる予約の件数の上限">
+        <label>1人が同時に確保できる予約の件数の上限 <input type="number" min="1" step="1"> 件</label>
+        <button type="button">保存</button>
+      </li>
+      <li data-key="grace_minutes" data-label="利用開始の猶予">
+        <label>利用開始の猶予 <input type="number" min="1" step="1"> 分</label>
+        <button type="button">保存</button>
+      </li>
+      <li data-key="max_length_minutes" data-label="1件の予約の長さの上限">
+        <label>1件の予約の長さの上限 <input type="number" min="1" step="1"> 分</label>
+        <button type="button">保存</button>
+      </li>
+    </ul>
   </section>
 
   <!-- 共有された情報（screens.md 4.7。ADM-3） -->

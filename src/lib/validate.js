@@ -86,3 +86,15 @@ export function validateCohort(role, v) {
   if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 1) return { ok: false, code: 'INPUT_COHORT' };
   return { ok: true, value: v };
 }
+
+// 数値の変更の値（RSV-25。rules.md 6.17）。1以上の安全な整数。分の2つは、ミリ秒に直しても安全な整数であること。
+// 値が数値でないときは、この前の共4 で INPUT_BODY にする（api.md 8.42）
+const MINUTE_SETTING_KEYS = ['grace_minutes', 'max_length_minutes'];
+
+export function validateSettingValue(key, v) {
+  if (!Number.isSafeInteger(v) || v < 1) return { ok: false, code: 'INPUT_SETTING_VALUE' };
+  if (MINUTE_SETTING_KEYS.includes(key) && !Number.isSafeInteger(v * 60000)) {
+    return { ok: false, code: 'INPUT_SETTING_VALUE' };
+  }
+  return { ok: true, value: v };
+}

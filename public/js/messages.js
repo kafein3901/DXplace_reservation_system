@@ -36,6 +36,7 @@ const COMMON = {
   RULE_DEVICE_BUSY: 'この機器は今使えません。自分の予約なら「自分の予約」から利用開始してください。',
   INPUT_DEVICE_NAME: '機器の名前は1〜30文字で入れてください。改行は使えません。',
   RULE_DEVICE_NAME_DUPLICATE: '同じ名前の機器があります。',
+  INPUT_SETTING_VALUE: '1以上の整数で入れてください。',
   RULE_DEVICE_IN_USE: '利用中の予約があるため削除できません。予約の管理で利用を終了させてから削除してください。',
 };
 
