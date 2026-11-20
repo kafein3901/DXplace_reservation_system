@@ -14,6 +14,16 @@ export function findAdminById(sql, id) {
   return sql.exec(`SELECT ${COLUMNS} FROM admins WHERE id = ?`, id).toArray()[0] ?? null;
 }
 
+// 削除していない管理者を番号の順（作った順）に引く
+export function listActiveAdmins(sql) {
+  return sql.exec(`SELECT ${COLUMNS} FROM admins WHERE deleted_at IS NULL ORDER BY id`).toArray();
+}
+
+// 削除する。行は残し、deleted_at に秒を切り捨てない時刻を入れる（LOG-2, TIM-5）
+export function markAdminDeleted(sql, id, at) {
+  sql.exec('UPDATE admins SET deleted_at = ? WHERE id = ?', at, id);
+}
+
 // 1行足し、番号を返す。版は 1 から
 export function insertAdmin(sql, { loginId, displayName, passwordHash, passwordSalt, passwordIterations, createdAt }) {
   return sql

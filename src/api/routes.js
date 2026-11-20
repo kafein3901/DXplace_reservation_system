@@ -28,6 +28,7 @@ import {
   listDevicesForUser,
   renameDevice,
 } from './devices.js';
+import { createAdminByAdmin, deleteAdmin, listAdmins, resetAdminPasswordByAdmin } from './admins.js';
 import { changeUser, loginUser, registerUser } from './me.js';
 import { createAdminByMaint, resetAdminPasswordByMaint } from './maint.js';
 import {
@@ -171,6 +172,23 @@ export function buildRoutes({ derivePassword = pbkdf2 } = {}) {
     // 数値の変更（api.md 8.41・8.42。RSV-25, RSV-26）
     { method: 'GET', path: '/api/admin/settings', auth: 'admin', wrap: false, handler: getSettings },
     { method: 'POST', path: '/api/admin/settings', auth: 'admin', wrap: false, handler: changeSetting },
+    // 管理者の画面からの管理者のアカウント（api.md 8.44〜8.47。ADM-2）。PBKDF2 を使う作成・設定し直しだけ包む
+    { method: 'GET', path: '/api/admin/admins', auth: 'admin', wrap: false, handler: listAdmins },
+    {
+      method: 'POST',
+      path: '/api/admin/admins',
+      auth: 'admin',
+      wrap: true,
+      handler: (context) => createAdminByAdmin(context, derivePassword),
+    },
+    {
+      method: 'POST',
+      path: '/api/admin/admins/{id}/reset-password',
+      auth: 'admin',
+      wrap: true,
+      handler: (context) => resetAdminPasswordByAdmin(context, derivePassword),
+    },
+    { method: 'POST', path: '/api/admin/admins/{id}/delete', auth: 'admin', wrap: false, handler: deleteAdmin },
   ];
 }
 

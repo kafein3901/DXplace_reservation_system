@@ -12,6 +12,7 @@
     <button type="button" data-screen="devices">機器</button>
     <button type="button" data-screen="reservations">予約の管理</button>
     <button type="button" data-screen="settings">数値</button>
+    <button type="button" data-screen="admins">管理者</button>
     <button type="button" data-screen="shared-info">共有された情報</button>
     <button type="button" id="logout">認証を解く</button>
     <span id="admin-label"></span>
@@ -76,6 +77,28 @@
         <button type="button">保存</button>
       </li>
     </ul>
+  </section>
+
+  <!-- 管理者のアカウント（screens.md 4.6。ADM-2） -->
+  <section id="screen-admins" hidden>
+    <h1>管理者</h1>
+    <p class="message"></p>
+    <ul id="admin-list" class="list"></ul>
+    <!-- パスワードの設定し直し（一覧の下に1つだけ置く） -->
+    <form id="admin-reset-form" hidden>
+      <p id="admin-reset-target"></p>
+      <label>新しいパスワード <input type="password" id="admin-reset-password" autocomplete="new-password"></label>
+      <button type="submit">設定する</button>
+      <button type="button" id="admin-reset-cancel">やめる</button>
+    </form>
+    <h2>管理者の作成</h2>
+    <form id="admin-create-form">
+      <label>ID <input type="text" id="admin-create-id" autocomplete="off"></label>
+      <label>名前 <input type="text" id="admin-create-name" autocomplete="off"></label>
+      <label>パスワード <input type="password" id="admin-create-password" autocomplete="new-password"></label>
+      <button type="submit">作成する</button>
+    </form>
+    <p>パスワードは15〜128文字の半角の英数字と記号です。人が考えた値は推測されやすいので、パスワード管理のアプリなどでランダムに作った値を使ってください。</p>
   </section>
 
   <!-- 共有された情報（screens.md 4.7。ADM-3） -->
