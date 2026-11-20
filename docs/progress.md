@@ -139,9 +139,11 @@
 
 **デプロイのジョブを書いた（2026-11-20。`npm test` は 32 ファイル 1049 件がすべて通る）。コミット・push はまだ。** 了承した方針のとおり、`wrangler.jsonc` に `env.test`（`durable_objects` と `migrations` を上と同じに書いた）、`.github/workflows/test.yml`（`name` を `test-and-deploy` に）に `deploy-test`（`dev` への push、`needs: test`、`npx wrangler deploy --env test`）と `deploy-production`（`main` への push、`needs: test`、`npx wrangler deploy`）を足した。鍵は `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID` のシークレットを環境変数で渡す。設計文書にない2つ（`permissions: contents: read`、ブランチごとの `concurrency`）を開発者が了承し、testing-and-deploy.md 2 の表に2行と「3つのジョブは1つのワークフローに置く」理由を足した。手元では、YAML が読めることと `npx wrangler deploy --dry-run --env test`（反映はしない）で設定が通り `LEDGER` が結び付くことだけを確かめた。ジョブそのものは push するまで動かない。シークレットを置く前に `dev` を push すると `deploy-test` は失敗する（`test` は通る）。
 
+**テスト用の Worker への最初のデプロイが通った（2026-11-20）。** 開発者の指示で `dev`（6da9f7e）を初めて push した。`test` は成功したが、`deploy-test` は `assets-upload-session` で「No access to the specified resource.」となって失敗し続けた（学校のアカウントのトークンでも、個人のアカウントのトークンでも）。開発者が、トークンの権限のうち名前に Workers とあるものを全部 Edit にしたら、7回目の再実行（同じ 6da9f7e）で成功した。どの権限が要ったのかはまだわからない（下の「次の作業」の 6）。開発者の決定で、テスト用の Worker は一時的に開発者の個人のアカウントに置いた。testing-and-deploy.md 5（置き場所の一時の措置）・採らなかった案・残るリスクに書いた（2026-11-20 に開発者が決定。コードと `wrangler.jsonc` は変えていない）。URL は `deploy-test` のログの最後に出る（リポジトリが公開なので、ここには書かない。確認する人にだけ伝える。testing-and-deploy.md 残るリスク）。Claude が確かめたこと：`/` と `/admin`（`/admin.html` は静的ファイルの機能が 307 で `/admin` に送る）が開き、`/api/admin/me` が `AUTH_REQUIRED`（401）、知らない API が `NOT_FOUND_API`（404）を返す（台帳まで届いている）。ブラウザでも2つの画面が出て、`/admin` の 401 のほかにコンソールの誤りはない。`MAINT_KEY` はまだ置いていない。GitHub Pages は止まっていた（公開の API で 404、`dev` の push で「pages build and deployment」が動いていない）。リポジトリは公開のまま。Actions に `actions/checkout@v4`・`setup-node@v4` が Node 20 向けで廃止予定だという警告が出ている（今は Node 24 で動く。下の「次の作業」の 7）。
+
 ### 次の作業
 
-**次のセッションで始めるのは、テスト用の Worker への最初のデプロイと、開発者の手での結合テスト（下の 5）。** 作業は `dev` ブランチで行う。デプロイのジョブは書いた（2026-11-20）。動かす前に要るもの：Cloudflare の API トークン（Workers の編集だけを許すもの）とアカウント ID を学校のアカウントで作り、GitHub の Actions のシークレット `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID` に置く（PRE-11）、GitHub Pages を止めるか（下の「未解決の質問」）、今の変更のコミットと `dev` の push（開発者の指示で）。最初のデプロイの後、テスト用の Worker の `MAINT_KEY` を `npx wrangler secret put MAINT_KEY --env test` か管理画面で置き（api.md 6.2 の 1 の手順で作る。本番とは別の値）、`deploy-test` が成功して `dxplace-reservation-system-test` の画面が開くことを確かめてから、screens.md 6.2 の段 1〜9 と控えの「この回で確かめていないこと」、6.3・6.4 を開発者が行う。
+**次のセッションで始めるのは、テスト用の Worker での開発者の手での結合テスト（下の 5）。** 作業は `dev` ブランチで行う。最初のデプロイは通った（上の「テスト用の Worker への最初のデプロイが通った」）。始める前に、テスト用の Worker に `MAINT_KEY` を置く。api.md 6.2 の 1 の手順で作り、本番とは別の値にする。置くのは管理画面の `dxplace-reservation-system-test` の「設定」→「変数とシークレット」か、`npx wrangler secret put MAINT_KEY --env test`（個人のアカウントにログインして）で行う。そのうえで、screens.md 6.2 の段 1〜9 と控えの「この回で確かめていないこと」、6.3・6.4 を開発者が行う。今のセッションの変更（testing-and-deploy.md と、このファイル）のコミットと push は、開発者の指示で行う（push すると `deploy-test` がもう一度動く）。
 
 1. **利用者の入力を「登録・ログイン・名前と期生の変更」の3つの画面に分ける（2026-11-20 に開発者が決定）。** 要件の USR-3・USR-7 を変える。開発者が決めたこと：ログインは生徒か教員かと学籍番号だけを入れる（識別の組 USR-4 は変えない）。登録で、すでにいる識別の組を入れたら新しいコードで断る。名前・期生の変更は別の画面で行う。要件文書は Claude が下書きを示し、開発者が反映する（下書きは 2026-11-20 のセッションで示した）。反映されたら、基本設計（screens-and-api.md 2・4・「要件の読み方」）→ 詳細設計（api.md 8.15〜8.17、rules.md 6.5、error-codes.md、screens.md 3.3・5・6.2 の段 5）→ 実装の順に直す。設計を直すときに決めること：ログインの応答に名前を返すか（10章の「誰として操作しているかの表示」との関係も）、変更の画面が送る識別の組、新しいコードの名前。
    2026-11-20：要件の USR-7（f51b5c8）・USR-3（c10b550）が反映された。基本設計を直した（2026-11-20 に開発者が了承）：screens-and-api.md 1・2（ログイン・登録・名前と期生の変更の3つの画面）・4（`POST /api/me/register`・`/api/me/login`・`/api/me/change` に分ける。2026-11-20 に開発者が決定。今の `POST /api/me` は残さない。登録はすでにいる利用者を断る、ログインはいなければ `NOT_FOUND_USER`・何も書かず記録しない、変更は異なれば置き換えて記録）・5・7・採らなかった案・要件の読み方（USR-7 の「登録・変更のほか」の登録は初めて持たせることと読む。開発者が確認）、domain-model.md 2。logging.md・architecture.md は直さなくてよかった。次は詳細設計（api.md 8.15〜8.17、rules.md 6.5、error-codes.md、screens.md 3.3・5・6.2 の段 5）→ 実装。
@@ -155,6 +157,9 @@
 5. （済み）デプロイとテスト用の Worker の設計 → （済み）デプロイのジョブの実装 → テスト用の Worker で開発者の手での結合テスト（6.2 の段 1〜9 と、控えの「この回で確かめていないこと」、6.3・6.4）。v0.1.0 は本番にデプロイしない。
    2026-11-20：設計した（開発者が決定・了承）。開発者が決めたこと：いまの内容を `dev` ブランチに移し、`dev` はテスト用の Worker に、`main` は本番の Worker にデプロイする。`main` へのマージは開発者が指定したときだけ行う。v0.1.0 は本番にデプロイしない。`main` は cff201b のまま残す。テスト用の Worker は学校のアカウントに置く。本番へのデプロイのジョブも今作る。直したもの：testing-and-deploy.md（2 の流れとジョブ、5 の環境・設定の分け方・`MAINT_KEY`、6 の無料の範囲の分け合い、採らなかった案、残るリスク、1 の表の1行）、screens.md 6.1・6.1.1・6.2 の段 1 と段 9 の行・6.3・6.4・採らなかった案の1行（場所をテスト用の Worker に）、上の「進め方」4・5、CLAUDE.md「テストとGit」。テスト用の Worker の名前は `dxplace-reservation-system-test`（`env.test`）。
    2026-11-20：デプロイのジョブを実装した（上の「デプロイのジョブを書いた」）。
+   2026-11-20：最初のデプロイが通った（上の「テスト用の Worker への最初のデプロイが通った」）。残りは開発者の手での結合テスト。
+6. **テスト用の Worker を学校のアカウントに移し、API トークンの権限を絞る**（2026-11-20 に足した）。いまはテスト用の Worker が開発者の個人のアカウントにあり、PRE-11 から外れている（testing-and-deploy.md 5 の一時の措置）。トークンも、名前に Workers とある権限を全部 Edit にしてあり、設計の「Workers の編集だけを許すもの」（testing-and-deploy.md 2）より広い。やること：デプロイに要る最小の権限を確かめる（管理画面の権限は「Workers」などの名前で、wrangler の文書の「Workers Scripts」とは名前が違う。トークンの「JSON Payload」で正式な名前を見る）。学校のアカウントでその権限だけのトークンを作り、シークレットを置き直して、`MAINT_KEY` を新しく置く。設計文書（testing-and-deploy.md 2 の「鍵」の行と 5）に、要った権限を書き、一時の措置を外す。学校のアカウントでも「No access」になった原因（権限か、アカウントでの役割か）もここで確かめる。
+7. **Actions の部品の版を上げる**（2026-11-20 に足した）。`actions/checkout@v4`・`actions/setup-node@v4` は Node 20 向けで廃止予定だと警告が出ている。Node 24 向けの版に上げ、テストとデプロイが通ることを確かめる。
 
 実装の段階（上の「進め方」3）に回すこと：土台（`package.json`・`.nvmrc`・`wrangler.jsonc`・Vitest の設定。Node は手元が v26.13.0、wrangler は spike で 4.163.0 を使った。版は上の 1 で決めた）、台帳の骨組み（api.md 3 の経路の表と共通の流れ、1 の応答、4 の共通の確かめる順）と schema.md 5 の版の適用。api.md 3.4 と schema.md 5.4 の基盤の機能は spike で確かめた（2026-11-19。下の「schema.md で決めた持ち越し事項」）ので、実装では台帳の層のテストに書くだけでよい。GitHub Actions は、実装の段階ではテストのジョブだけを作り、デプロイのジョブは結合テストの後に作る（Cloudflare の API トークンは学校のアカウントが作る。PRE-11 は未定）。
 
@@ -226,7 +231,7 @@ schema.md で決めた持ち越し事項：終了 > 開始の制約を付けな�
 ## 未解決の質問・確認事項
 
 
-- **GitHub Pages**（2026-11-20 に気づいた）：リポジトリは公開で、Pages が有効。push のたびに「pages build and deployment」が動く。v0.1.0 は公開しないので、Pages を止めるか、リポジトリを非公開にするかを開発者が決める（設定はリポジトリの Settings → Pages で、開発者が行う）。デプロイの前までに決める。
+- （解決）**GitHub Pages**（2026-11-20 に気づいた）：2026-11-20 の最初のデプロイの時点で止まっていた（公開の API で 404、`dev` の push で動いていない）。リポジトリは公開のまま。
 
 - architecture.md から持ち越し：PBKDF2 の `await` の間に他のリクエストが割り込みうる（管理者のパスワードを扱う操作だけ `blockConcurrencyWhile` で包むと決めた。リクエストの処理の中でも動くことは実測で確かめた。台帳の層のテストでも確かめる）。USR-7 の名前の置き換えは `POST /api/me/change` だけで行う（2026-11-20 に直した。screens-and-api.md 4）。
 
